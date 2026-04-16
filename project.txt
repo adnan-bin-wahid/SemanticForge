@@ -1,0 +1,384 @@
+What you should build
+
+Build a Python-only repository assistant that can:
+
+ingest a GitHub/local Python repository,
+build a repository knowledge graph,
+accept an instruction like “add validation to user registration” or “align this commit with existing repository pattern,”
+retrieve relevant repository context through a learned or semi-learned query planner,
+generate a patch,
+verify it with static constraints and tests,
+show the diff in a VS Code extension.
+
+That keeps the same four big ideas from the paper, but with smaller free models and a more realistic evaluation scope. The paper itself is Python-focused, and it also notes that test quality is important and that multi-language support is still a limitation, so Python-only is the right first scope.
+
+Best project architecture
+
+Use this architecture:
+
+Frontend
+
+VS Code extension in TypeScript
+Shows:
+“Index repository”
+“Ask for aligned implementation”
+“Show retrieved graph context”
+“Show suggested patch”
+“Accept / reject / regenerate”
+
+Backend
+
+FastAPI service in Python
+Background worker for indexing and graph updates
+Separate modules:
+repo ingestion
+graph builder
+query planner
+code generator
+constraint checker
+maintenance agent
+evaluation pipeline
+
+Storage
+
+Neo4j Community Edition for the code knowledge graph
+PostgreSQL or SQLite for metadata/jobs/settings
+Qdrant or pgvector for embeddings
+Redis for caching and async jobs
+Free tools you should use
+
+A strong free stack would be:
+
+Backend: FastAPI, Pydantic, SQLAlchemy
+Graph: Neo4j Community
+Vector search: Qdrant local
+Static parsing: Tree-sitter + Python ast / LibCST
+Dynamic traces: pytest, coverage.py, MonkeyType or custom tracing with sys.setprofile
+Type/static validation: mypy or pyright, Ruff
+Constraint solver: Z3
+Local code LLM: a 7B code model served with Ollama or vLLM
+Embeddings: sentence-transformers
+Worker queue: Celery or Dramatiq with Redis
+DevOps: Docker Compose, GitHub Actions
+Observability: OpenTelemetry + Prometheus + Grafana
+Testing: pytest, integration tests, extension tests
+How to implement each paper component
+1) Repository Knowledge Graph
+
+The paper’s graph uses typed nodes like function, class, variable, file, test, API, and edges like CALLS, DEFINES, IMPORTS, MUTATES, RETURNS, INSTANCEOF.
+
+So implement a graph schema like this:
+
+Nodes
+
+Repository
+File
+Module
+Class
+Function / Method
+Variable
+Test
+External API / Library symbol
+
+Edges
+
+IMPORTS
+DEFINES
+CALLS
+INHERITS
+RETURNS
+MUTATES
+USES_TYPE
+TESTS
+INSTANCEOF
+
+Static pipeline
+
+parse files
+extract imports, functions, signatures, classes, decorators, docstrings
+build cross-file references
+store line ranges and symbol IDs
+
+Dynamic pipeline
+
+run repo tests with instrumentation
+capture actual call traces
+capture runtime type examples
+capture which tests touch which functions
+merge this back into the graph
+
+The paper reports that the dual static-dynamic setup is one of the most important gains, improving Pass@1 and reducing logical errors, so this is not optional in your project.
+
+2) Neural Query Planner
+
+The paper uses Flan-T5 and REINFORCE to generate structured graph queries, with warm-start from synthetic instruction-query pairs.
+
+For a final year version, do it in two stages:
+
+Stage A: practical first version
+
+hybrid retrieval:
+BM25 over code/docstrings
+embedding retrieval over symbol summaries
+graph expansion over neighbors
+add a small reranker model to score candidate subgraphs
+
+Stage B: faithful ML version
+
+train a small Flan-T5 model to map instruction → graph query DSL
+create synthetic training pairs from repository dependencies
+optionally add reward tuning later using:
+test pass signal
+type-check signal
+smaller-context bonus
+
+This follows the paper’s idea closely, but in a manageable way.
+
+3) Constraint-Guided Decoder
+
+This is the hardest part. The paper’s main idea is not “generate first, validate later,” but “prune invalid generations during decoding using SMT.” It uses type, signature, visibility, and architectural constraints, with Z3 and incremental solving.
+
+For your prototype, implement constraints in layers:
+
+Layer 1: must-have
+
+function exists
+import exists
+correct parameter count
+private/protected access rule
+class/method visibility rule
+file/module existence rule
+
+Layer 2: stronger
+
+type compatibility for common cases
+decorator/endpoint rules
+repository-specific architecture rules
+service should not call DB directly
+controller must call service
+serializer paired with model
+tests must exist for changed endpoint
+
+How to apply
+
+use Hugging Face generation hooks or a custom beam loop
+when a token sequence forms a candidate identifier/call/import, ask Z3 whether it violates known constraints
+prune invalid beams
+after full generation, also run:
+Ruff
+mypy/pyright
+pytest
+
+A full token-level solver for all Python semantics is too much for FYP scope. A partial SMT-guided decoder focused on symbols, calls, imports, and signatures is still a serious and defensible implementation.
+
+4) Continual Maintenance Agent
+
+The paper treats this as a major component, not a side feature. It updates only impacted graph regions after changes, instead of rebuilding everything.
+
+Implement it like this:
+
+watch filesystem or git diff
+compute changed files
+AST-diff changed symbols
+invalidate affected nodes and neighbors
+re-extract only impacted graph fragments
+lazily resolve far cross-file references later
+
+That gives you a professional system feel.
+
+What makes it production-ready
+
+To make this look like a real production system, include:
+
+Docker Compose for all services
+clear REST API contracts
+config management with .env
+structured logs
+request IDs
+retries/timeouts
+background job queue
+health check endpoints
+unit tests + integration tests
+CI with lint/test/build
+model/version registry in DB
+graph schema versioning
+audit trail of generated patches and user accept/reject feedback
+A realistic final year evaluation
+
+Do not try to recreate REPOKG-50.
+
+Build your own smaller benchmark:
+
+8–12 good Python repos
+150–300 tasks
+tasks from:
+real commit history
+hand-written feature requests
+bug-fix scenarios
+
+Measure:
+
+Pass@1
+compile / lint pass rate
+pytest pass rate
+schematic hallucination rate
+logical hallucination rate
+retrieval precision
+latency
+graph update time
+
+Those are aligned with the paper’s evaluation philosophy.
+
+Best delivery plan
+
+Semester-wise, the safest order is:
+
+Phase 1
+
+VS Code extension
+FastAPI backend
+repo indexing
+Neo4j graph
+basic hybrid retrieval
+
+Phase 2
+
+local code generation
+patch creation
+lint/type/test validation
+diff viewer in extension
+
+Phase 3
+
+dynamic traces from tests
+graph merge
+maintenance agent
+
+Phase 4
+
+learned query planner
+synthetic query dataset
+small fine-tuning / reward tuning
+
+Phase 5
+
+SMT-guided decoding
+evaluation benchmark
+ablation study
+My strongest recommendation
+
+Do not pitch this as “I will reproduce the paper exactly.”
+
+Pitch it as:
+
+“A production-ready SemanticForge-inspired repository-level code generation system for Python, using semantic knowledge graphs, learned context selection, constraint-guided patch generation, and incremental graph maintenance.”
+
+That is ambitious, honest, and academically strong.
+
+Next step could be a full project proposal with title, objectives, methodology, tools, architecture, and evaluation plan in final-year-project format.
+
+next step
+Thought for 53s
+
+The next step is Step 1: freeze the project scope and write the project specification before writing code.
+
+That is the right next move because the paper’s value comes from four connected parts—knowledge graph, query planner, constraint-aware decoder, and maintenance agent—so you need a clear MVP boundary first, otherwise the project will become too big too fast. The paper also shows that the dual static-dynamic graph and constraint enforcement are especially important, so those must stay inside your core scope.
+
+Use this exact project definition now:
+
+Final project title
+
+RepoAlign: Repository-Level Code Generation and Pattern-Aligned Patch Suggestion using Semantic Knowledge Graphs and Constraint Checking
+
+Problem statement
+
+Current code generation tools can write code, but they often make:
+
+logical mistakes in behavior, and
+schematic mistakes like wrong signatures, wrong imports, wrong types, or violating repository structure.
+
+The paper solves this by using explicit repository semantics, graph-based context retrieval, and constraint-aware generation instead of plain text retrieval alone.
+
+Your project objective
+
+Build a production-style Python repository assistant that:
+
+indexes a Python repository into a semantic graph,
+retrieves relevant repository context for a user instruction,
+generates a patch aligned with repository patterns,
+checks constraints before accepting the patch,
+updates repository knowledge incrementally after code changes.
+Your MVP scope
+
+Your MVP must include these 4 modules:
+
+1. Repository Knowledge Graph
+
+static analysis of Python repo
+function/class/import/call graph extraction
+test-to-code links
+runtime trace enrichment from pytest/coverage
+
+2. Query Planner
+
+start with hybrid retrieval:
+BM25
+embeddings
+graph-neighbor expansion
+later upgrade to learned query generation
+
+3. Constraint-Aware Patch Generator
+
+generate patch with local code model
+validate:
+imports
+symbol existence
+function arity
+visibility/access
+architecture rules
+use Z3 for core symbolic checks where possible
+
+4. Maintenance Agent
+
+watch changed files
+re-index only impacted graph regions
+keep graph fresh after edits
+
+That matches the paper’s main architecture closely.
+
+What you should NOT include in version 1
+
+Do not include these in the first implementation:
+
+multi-language support
+huge model fine-tuning
+full token-level SMT over all Python grammar
+distributed multi-node deployment
+massive benchmark recreation like REPOKG-50
+Exact tool stack
+
+Use this stack:
+
+VS Code extension: TypeScript
+Backend: FastAPI
+Graph DB: Neo4j Community
+Metadata DB: PostgreSQL or SQLite
+Vector DB: Qdrant
+Static analysis: Python AST + LibCST + Tree-sitter
+Dynamic analysis: pytest + coverage.py
+Constraint checks: Z3 + mypy/pyright + Ruff
+Embeddings: sentence-transformers
+Local model serving: Ollama or vLLM
+Queue/cache: Redis
+DevOps: Docker Compose + GitHub Actions
+Minimum success criteria
+
+Write these as your formal success criteria:
+
+index a Python repo and build graph successfully
+answer a natural-language coding request
+retrieve relevant repository context
+generate a patch diff
+reject clearly invalid patches using constraints
+run lint/type/test checks on generated patch
+re-index only changed parts after code update
