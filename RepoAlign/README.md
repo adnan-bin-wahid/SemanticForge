@@ -6,12 +6,12 @@ RepoAlign is a production-ready, SemanticForge-inspired repository-level code ge
 
 Before you begin, ensure you have the following installed on your system:
 
-*   **Docker and Docker Compose:** Required to run the containerized backend service.
-    *   [Install Docker Desktop](https://www.docker.com/products/docker-desktop/)
-*   **Node.js and npm:** Required for the VS Code extension frontend.
-    *   [Install Node.js](https://nodejs.org/)
-*   **Visual Studio Code:** The editor environment for the frontend.
-    *   [Install VS Code](https://code.visualstudio.com/)
+- **Docker and Docker Compose:** Required to run the containerized backend service.
+  - [Install Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- **Node.js and npm:** Required for the VS Code extension frontend.
+  - [Install Node.js](https://nodejs.org/)
+- **Visual Studio Code:** The editor environment for the frontend.
+  - [Install VS Code](https://code.visualstudio.com/)
 
 ## Running the Project
 
@@ -24,9 +24,11 @@ The backend is a containerized FastAPI application managed by Docker Compose.
 1.  **Open a terminal** at the root of the `RepoAlign` project directory.
 
 2.  **Build and run the backend container** using the following command:
+
     ```bash
     docker compose up --build
     ```
+
     This command will build the Docker image for the backend, download any necessary base images, and start the service. You should see logs from the `uvicorn` server in your terminal.
 
     > **Note:** Keep this terminal running. Closing it will stop the backend service.
@@ -36,16 +38,23 @@ The backend is a containerized FastAPI application managed by Docker Compose.
 The frontend is a VS Code extension that you will launch in a separate development environment.
 
 1.  **Open a new terminal** and navigate to the `frontend` directory:
+
     ```bash
     cd frontend
     ```
 
 2.  **Install the dependencies** for the extension:
+
     ```bash
     npm install
     ```
 
-3.  **Open the frontend project in VS Code.** You can do this directly from your terminal:
+3.  **Compile the TypeScript code:**
+    ```bash
+    npm run compile
+    ```
+4.  **Open the frontend project in VS Code.** You can do this directly from your terminal:
+
     ```bash
     code .
     ```
