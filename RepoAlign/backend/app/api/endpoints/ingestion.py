@@ -10,7 +10,7 @@ router = APIRouter()
 async def ingest_repository(request: IngestionRequest):
     """
     Receives a repository path, discovers Python files, parses them,
-    and extracts top-level functions and classes.
+    and extracts top-level functions, classes, and imports.
     """
     python_files = discover_python_files(request.repo_path)
     analysis_results = []
@@ -23,7 +23,8 @@ async def ingest_repository(request: IngestionRequest):
             analysis_results.append({
                 "file_path": file_path,
                 "functions": structures["functions"],
-                "classes": structures["classes"]
+                "classes": structures["classes"],
+                "imports": structures["imports"]
             })
         else:
             failed_files.append(file_path)

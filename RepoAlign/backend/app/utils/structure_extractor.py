@@ -3,11 +3,40 @@ from typing import List, Dict, Any, Union
 
 class StructureExtractor(ast.NodeVisitor):
     """
-    An AST visitor to extract top-level function and class definitions.
+    An AST visitor to extract top-level function, class, and import statements.
     """
     def __init__(self):
         self.functions: List[Dict[str, Any]] = []
         self.classes: List[Dict[str, Any]] = []
+        self.imports: List[Dict[str, Any]] = []
+
+    def visit_Import(self, node: ast.Import):
+        """
+        Visit an import statement.
+        """
+        for alias in node.names:
+            self.imports.append({
+                "type": "import",
+                "lineno": node.lineno,
+                "module": alias.name,
+                "alias": alias.asname
+            })
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        """
+        Visit a from ... import statement.
+        """
+        for alias in node.names:
+            self.imports.append({
+                "type": "from_import",
+                "lineno": node.lineno,
+                "module": node.module,
+                "name": alias.name,
+                "alias": alias.asname,
+                "level": node.level
+            })
+        self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         """
@@ -40,17 +69,18 @@ class StructureExtractor(ast.NodeVisitor):
 
 def extract_structures(tree: ast.AST) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Extracts function and class definitions from an AST.
+    Extracts function, class, and import definitions from an AST.
 
     Args:
         tree: The AST to analyze.
 
     Returns:
-        A dictionary containing lists of extracted functions and classes.
+        A dictionary containing lists of extracted functions, classes, and imports.
     """
     extractor = StructureExtractor()
     extractor.visit(tree)
     return {
         "functions": extractor.functions,
-        "classes": extractor.classes
+        "classes": extractor.classes,
+        "imports": extractor.imports
     }
