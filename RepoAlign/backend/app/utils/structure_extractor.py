@@ -1,6 +1,12 @@
 import ast
 from typing import List, Dict, Any, Optional
 
+def _unparse_annotation(annotation: Optional[ast.expr]) -> Optional[str]:
+    """Safely unparses a type annotation node."""
+    if annotation is None:
+        return None
+    return ast.unparse(annotation)
+
 def get_call_name(call_node: ast.Call) -> Optional[str]:
     """
     Extracts a string representation of a call from an ast.Call node.
@@ -53,18 +59,60 @@ class StructureExtractor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
-        # Start collecting calls for this new function context
         original_calls_context = self._current_function_calls
         self._current_function_calls = []
 
-        # Visit children to find calls within this function
         self.generic_visit(node)
+
+        # Extract full signature details
+        args = node.args
+        defaults = [ast.unparse(d) for d in args.defaults]
+        kw_defaults = [ast.unparse(d) if d else None for d in args.kw_defaults]
+        
+        num_pos_only = len(args.posonlyargs)
+        num_kw_only = len(args.kwonlyargs)
+        num_with_defaults = len(defaults)
+
+        parameters = []
+        # Positional-only args
+        for i, arg in enumerate(args.posonlyargs):
+            param = {"name": arg.arg, "kind": "positional_only", "annotation": _unparse_annotation(arg.annotation)}
+            parameters.append(param)
+
+        # Positional-or-keyword args
+        for i, arg in enumerate(args.args):
+            param = {"name": arg.arg, "kind": "positional_or_keyword", "annotation": _unparse_annotation(arg.annotation)}
+            # Match default values from the end
+            default_index = i - (len(args.args) - num_with_defaults)
+            if default_index >= 0:
+                param["default"] = defaults[default_index]
+            parameters.append(param)
+
+        # Vararg (*args)
+        if args.vararg:
+            parameters.append({"name": args.vararg.arg, "kind": "var_positional", "annotation": _unparse_annotation(args.vararg.annotation)})
+
+        # Keyword-only args
+        for i, arg in enumerate(args.kwonlyargs):
+            param = {"name": arg.arg, "kind": "keyword_only", "annotation": _unparse_annotation(arg.annotation)}
+            if kw_defaults[i] is not None:
+                param["default"] = kw_defaults[i]
+            parameters.append(param)
+        
+        # Kwarg (**kwargs)
+        if args.kwarg:
+            parameters.append({"name": args.kwarg.arg, "kind": "var_keyword", "annotation": _unparse_annotation(args.kwarg.annotation)})
+
+        signature = {
+            "parameters": parameters,
+            "return_annotation": _unparse_annotation(node.returns)
+        }
 
         function_data = {
             "name": node.name,
             "lineno": node.lineno,
             "end_lineno": node.end_lineno,
-            "args": [arg.arg for arg in node.args.args],
+            "signature": signature,
             "calls": self._current_function_calls
         }
 
@@ -73,23 +121,24 @@ class StructureExtractor(ast.NodeVisitor):
         else:
             self.functions.append(function_data)
 
-        # Restore previous call context
         self._current_function_calls = original_calls_context
 
     def visit_ClassDef(self, node: ast.ClassDef):
         original_methods_context = self._current_class_methods
         self._current_class_methods = []
         
-        # Visit the body of the class to find methods
+        # Manually visit function definitions to control context
         for child in node.body:
             if isinstance(child, ast.FunctionDef):
                 self.visit_FunctionDef(child)
+            else:
+                self.visit(child)
 
         self.classes.append({
             "name": node.name,
             "lineno": node.lineno,
             "end_lineno": node.end_lineno,
-            "bases": [base.id for base in node.bases if isinstance(base, ast.Name)],
+            "bases": [_unparse_annotation(b) for b in node.bases],
             "methods": self._current_class_methods
         })
         
