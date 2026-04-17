@@ -1,38 +1,22 @@
-from fastapi import APIRouter
-from ...models.ingestion import IngestionRequest
-from ...models.code_structures import AnalysisResult, FileReport
-from ...utils.file_discovery import discover_python_files
-from ...utils.ast_parser import parse_file_to_ast
-from ...utils.structure_extractor import extract_structures
+from fastapi import APIRouter, Depends
+from pathlib import Path
+
+from app.models.ingestion import IngestionRequest
+from app.models.code_structures import AnalysisResult
+from app.services.analysis_service import AnalysisService, get_analysis_service
 
 router = APIRouter()
 
 @router.post("/ingest", response_model=AnalysisResult, tags=["Ingestion"])
-async def ingest_repository(request: IngestionRequest):
+async def ingest_repository(
+    request: IngestionRequest,
+    analysis_service: AnalysisService = Depends(get_analysis_service)
+):
     """
     Receives a repository path, discovers Python files, parses them,
-    and extracts top-level functions, classes, and imports.
+    and extracts their structure using the AnalysisService.
     """
-    python_files = discover_python_files(request.repo_path)
-    analysis_results: list[FileReport] = []
-    failed_files: list[str] = []
+    repo_path = Path(request.repo_path)
+    analysis_result = analysis_service.analyze_repository(repo_path)
+    return analysis_result
 
-    for file_path in python_files:
-        ast_tree = parse_file_to_ast(file_path)
-        if ast_tree:
-            structures = extract_structures(ast_tree)
-            report = FileReport(
-                file_path=file_path,
-                functions=structures["functions"],
-                classes=structures["classes"],
-                imports=structures["imports"]
-            )
-            analysis_results.append(report)
-        else:
-            failed_files.append(file_path)
-    
-    return AnalysisResult(
-        message=f"Analyzed {len(python_files)} Python files. Found {len(analysis_results)} parsable files. Failed to parse {len(failed_files)}.",
-        analysis_results=analysis_results,
-        failed_to_parse=failed_files
-    )
