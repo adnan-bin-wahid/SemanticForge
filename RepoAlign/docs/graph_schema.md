@@ -5,6 +5,7 @@ This document formally defines the schema for the knowledge graph used by RepoAl
 ## Node Labels
 
 ### `Repository`
+
 Represents a single code repository.
 
 - **Properties:**
@@ -12,6 +13,7 @@ Represents a single code repository.
   - `path` (String): The root path of the repository that was analyzed.
 
 ### `File`
+
 Represents a single source code file.
 
 - **Properties:**
@@ -19,12 +21,14 @@ Represents a single source code file.
   - `path` (String): The full path to the file within the repository.
 
 ### `Module`
+
 Represents a Python module that is imported.
 
 - **Properties:**
   - `name` (String): The fully qualified name of the module (e.g., "fastapi.routing").
 
 ### `Class`
+
 Represents a class definition.
 
 - **Properties:**
@@ -33,6 +37,7 @@ Represents a class definition.
   - `end_line` (Integer): The ending line number of the class definition.
 
 ### `Function`
+
 Represents a function or method definition.
 
 - **Properties:**
@@ -45,4 +50,23 @@ Represents a function or method definition.
 
 ## Relationship Types
 
-*(To be defined in Sub-phase 3.4)*
+### `CONTAINS`
+Connects a `Repository` to the `File` nodes within it.
+- **Structure:** `(Repository)-[:CONTAINS]->(File)`
+
+### `DEFINES`
+Connects a `File` to a `Class` or `Function` it defines.
+- **Structure:** `(File)-[:DEFINES]->(Class)`
+- **Structure:** `(File)-[:DEFINES]->(Function)`
+
+### `IMPORTS`
+Connects a `File` to a `Module` it imports.
+- **Structure:** `(File)-[:IMPORTS]->(Module)`
+
+### `INHERITS`
+Connects a `Class` to a parent `Class` it inherits from.
+- **Structure:** `(Class)-[:INHERITS]->(Class)`
+
+### `CALLS`
+Connects a `Function` to another `Function` it calls.
+- **Structure:** `(Function)-[:CALLS]->(Function)`
