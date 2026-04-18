@@ -44,7 +44,10 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async (progress) => {
           try {
-            progress.report({ increment: 0, message: "Finding Python files..." });
+            progress.report({
+              increment: 0,
+              message: "Finding Python files...",
+            });
 
             // 1. Find all Python files in the workspace
             const pythonFiles = await vscode.workspace.findFiles(
@@ -58,7 +61,10 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
 
-            progress.report({ increment: 20, message: "Reading file contents..." });
+            progress.report({
+              increment: 20,
+              message: "Reading file contents...",
+            });
 
             // 2. Read the content of each file
             const fileContents: FileContent[] = await Promise.all(
@@ -116,4 +122,3 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {}
-
