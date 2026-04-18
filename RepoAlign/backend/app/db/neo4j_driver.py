@@ -1,43 +1,25 @@
-from neo4j import GraphDatabase, Driver
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from neo4j import AsyncGraphDatabase, Driver, basic_auth
+import os
 
-# Connection details for the Neo4j container
-NEO4J_URI = "bolt://neo4j:7687"
-# We disabled auth in docker-compose, so no user/pass needed
-NEO4J_USER = ""
-NEO4J_PASSWORD = ""
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
 
-class Neo4jConnection:
-    def __init__(self, uri: str, user: str, password: str):
-        self.driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
-
-    def close(self):
-        self.driver.close()
-
-    async def verify_connectivity(self):
-        """
-        Verifies that the driver can connect to the database.
-        Raises an exception if the connection fails.
-        """
-        await self.driver.verify_connectivity()
-
-db_connection = Neo4jConnection(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+driver: Driver | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # On startup, verify connection
-    try:
-        await db_connection.driver.verify_connectivity()
-        print("Successfully connected to Neo4j.")
-    except Exception as e:
-        print(f"Failed to connect to Neo4j: {e}")
-    
+    global driver
+    # Initialize the driver with Neo4j credentials
+    driver = AsyncGraphDatabase.driver(NEO4J_URI, auth=basic_auth("neo4j", "password"), encrypted=False)
+    print("Connecting to Neo4j...")
     yield
-    
-    # On shutdown, close the connection
-    print("Closing Neo4j connection.")
-    db_connection.close()
+    if driver:
+        await driver.close()
+        print("Disconnected from Neo4j.")
 
-def get_db_driver() -> Driver:
-    return db_connection.driver
+def get_neo4j_driver() -> Driver:
+    global driver
+    if driver is None:
+        raise RuntimeError("Neo4j driver not initialized.")
+    return driver

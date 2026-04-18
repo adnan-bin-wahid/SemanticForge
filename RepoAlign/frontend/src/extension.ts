@@ -79,34 +79,23 @@ export function activate(context: vscode.ExtensionContext) {
 
             progress.report({
               increment: 50,
-              message: "Sending data to backend for analysis...",
+              message:
+                "Sending data to backend for analysis and graph construction...",
             });
 
-            // 3. Send the data to the backend
-            const response = await axios.post(
-              "http://localhost:8000/api/v1/ingest",
-              {
-                files: fileContents,
-              },
-            );
+            // 3. Send the data to the backend for graph construction
+            await axios.post("http://localhost:8000/api/v1/build-graph", {
+              files: fileContents,
+            });
 
             progress.report({
-              increment: 80,
-              message: "Displaying results...",
+              increment: 100,
+              message: "Graph construction complete.",
             });
 
-            // 4. Display the results in a new document
-            const analysisResult = JSON.stringify(response.data, null, 2);
-            const document = await vscode.workspace.openTextDocument({
-              content: analysisResult,
-              language: "json",
-            });
-            await vscode.window.showTextDocument(document, {
-              viewColumn: vscode.ViewColumn.Beside,
-              preview: false,
-            });
-
-            progress.report({ increment: 100, message: "Analysis complete." });
+            vscode.window.showInformationMessage(
+              "RepoAlign: Knowledge graph built successfully!",
+            );
           } catch (error) {
             vscode.window.showErrorMessage(
               "An error occurred during workspace analysis.",

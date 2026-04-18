@@ -8,7 +8,8 @@ services:
     volumes:
       - ./backend/app:/app/app
     depends_on:
-      - neo4j
+      neo4j:
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   neo4j:
@@ -19,7 +20,12 @@ services:
     volumes:
       - neo4j_data:/data
     environment:
-      - NEO4J_AUTH=none
+      NEO4J_AUTH: "neo4j/password"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
 volumes:
   neo4j_data:

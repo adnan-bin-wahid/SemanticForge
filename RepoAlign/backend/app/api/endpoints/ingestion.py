@@ -4,6 +4,7 @@ from app.models.ingestion import IngestionRequest
 from app.models.code_structures import AnalysisResult
 from app.services.analysis_service import AnalysisService, get_analysis_service
 
+
 router = APIRouter()
 
 @router.post("/ingest", response_model=AnalysisResult, tags=["Ingestion"])

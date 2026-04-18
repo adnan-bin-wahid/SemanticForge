@@ -51,22 +51,32 @@ Represents a function or method definition.
 ## Relationship Types
 
 ### `CONTAINS`
+
 Connects a `Repository` to the `File` nodes within it.
+
 - **Structure:** `(Repository)-[:CONTAINS]->(File)`
 
 ### `DEFINES`
+
 Connects a `File` to a `Class` or `Function` it defines.
+
 - **Structure:** `(File)-[:DEFINES]->(Class)`
 - **Structure:** `(File)-[:DEFINES]->(Function)`
 
 ### `IMPORTS`
+
 Connects a `File` to a `Module` it imports.
+
 - **Structure:** `(File)-[:IMPORTS]->(Module)`
 
 ### `INHERITS`
+
 Connects a `Class` to a parent `Class` it inherits from.
+
 - **Structure:** `(Class)-[:INHERITS]->(Class)`
 
 ### `CALLS`
+
 Connects a `Function` to another `Function` it calls.
+
 - **Structure:** `(Function)-[:CALLS]->(Function)`
