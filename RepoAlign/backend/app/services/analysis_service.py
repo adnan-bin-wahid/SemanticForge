@@ -1,39 +1,47 @@
-from pathlib import Path
 from typing import List
+import ast
 
-from app.models.code_structures import AnalysisResult, FileReport
-from app.utils.file_discovery import discover_python_files
-from app.utils.ast_parser import parse_file_to_ast
+from app.models.ingestion import IngestionRequest
+from app.models.code_structures import (
+    AnalysisResult,
+    FileReport,
+    FunctionDef,
+    ClassDef,
+    ImportDef,
+)
 from app.utils.structure_extractor import StructureExtractor
 
+
 class AnalysisService:
-    def analyze_repository(self, repo_path: Path) -> AnalysisResult:
-        python_files = discover_python_files(str(repo_path))
+    def analyze_repository(self, request: IngestionRequest) -> AnalysisResult:
         file_reports: List[FileReport] = []
 
-        for file_path in python_files:
+        for file_content in request.files:
             try:
-                tree = parse_file_to_ast(file_path)
+                tree = ast.parse(file_content.content)
                 if tree:
-                    extractor = StructureExtractor(str(repo_path))
+                    extractor = StructureExtractor(root_path=".")
                     extractor.visit(tree)
-                    
-                    # Create a FileReport Pydantic model
+
+                    # Convert dicts to Pydantic models
+                    functions = [FunctionDef(**f) for f in extractor.functions]
+                    classes = [ClassDef(**c) for c in extractor.classes]
+                    imports = [ImportDef(**i) for i in extractor.imports]
+
                     report = FileReport(
-                        file_path=file_path.replace(str(repo_path), "", 1).lstrip("/\\"),
-                        imports=extractor.imports,
-                        classes=[
-                            cls.copy(deep=True) for cls in extractor.classes
-                        ],
-                        functions=[
-                            func.copy(deep=True) for func in extractor.functions
-                        ]
+                        file_path=file_content.path,
+                        imports=imports,
+                        classes=classes,
+                        functions=functions,
                     )
                     file_reports.append(report)
             except Exception as e:
-                print(f"Error analyzing file {file_path}: {e}")
+                print(f"Error analyzing file {file_content.path}: {e}")
 
         return AnalysisResult(files=file_reports)
 
+
 def get_analysis_service() -> AnalysisService:
     return AnalysisService()
+
+

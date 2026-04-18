@@ -29,7 +29,8 @@ class StructureExtractor(ast.NodeVisitor):
     """
     An AST visitor to extract top-level function, class, import, and call statements.
     """
-    def __init__(self):
+    def __init__(self, root_path: str = ""):
+        self.root_path = root_path
         self.functions: List[Dict[str, Any]] = []
         self.classes: List[Dict[str, Any]] = []
         self.imports: List[Dict[str, Any]] = []

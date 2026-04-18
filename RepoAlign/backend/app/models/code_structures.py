@@ -44,6 +44,4 @@ class FileReport(BaseModel):
     imports: List[ImportDef]
 
 class AnalysisResult(BaseModel):
-    message: str
-    analysis_results: List[FileReport]
-    failed_to_parse: List[str]
+    files: List[FileReport]
