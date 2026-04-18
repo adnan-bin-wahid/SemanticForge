@@ -9,6 +9,7 @@ driver: Driver | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Initialize and manage Neo4j driver lifecycle."""
     global driver
     # Initialize the driver with Neo4j credentials
     driver = AsyncGraphDatabase.driver(NEO4J_URI, auth=basic_auth("neo4j", "password"), encrypted=False)
