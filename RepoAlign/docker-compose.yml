@@ -7,4 +7,20 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+    depends_on:
+      - neo4j
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  neo4j:
+    image: neo4j:5.13
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    environment:
+      - NEO4J_AUTH=none
+
+volumes:
+  neo4j_data:
+
