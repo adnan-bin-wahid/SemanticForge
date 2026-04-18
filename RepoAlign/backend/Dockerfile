@@ -6,6 +6,9 @@ WORKDIR /app
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
+# Install PyTorch CPU first to avoid CUDA packages
+RUN pip install --no-cache-dir torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+# Then install remaining dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
