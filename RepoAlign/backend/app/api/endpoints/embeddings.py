@@ -2,6 +2,10 @@ from fastapi import APIRouter
 from ...services.embedding_indexer import EmbeddingIndexer
 from ...services.vector_search import search_by_query
 from ...models.search import VectorSearchQuery, VectorSearchResponse, SearchResult
+from app.services.keyword_search import keyword_search_instance
+from app.models.search import KeywordSearchQuery, KeywordSearchResponse
+from ..services.hybrid_search import hybrid_search_instance
+from ..models.search import HybridSearchResponse
 
 router = APIRouter()
 
@@ -47,3 +51,34 @@ async def vector_search(request: VectorSearchQuery):
         results=search_results,
         total_results=len(search_results),
     )
+
+@router.post("/keyword-search", response_model=KeywordSearchResponse)
+async def keyword_search(request: KeywordSearchQuery):
+    """
+    Search for code symbols using keyword matching.
+    
+    Args:
+        request: Contains the query and optional limit
+        
+    Returns:
+        List of relevant code symbols with scores
+    """
+    # Ensure the index is built before searching
+    if not keyword_search_instance.bm25:
+        await keyword_search_instance.index_documents()
+        
+    results = keyword_search_instance.search(request.query, request.limit)
+    
+    return KeywordSearchResponse(
+        query=request.query,
+        results=results,
+        total_results=len(results),
+    )
+
+@router.post("/hybrid-search", response_model=HybridSearchResponse)
+async def hybrid_search(request: VectorSearchQuery):
+    """
+    Perform a hybrid search combining vector and keyword search.
+    """
+    results = await hybrid_search_instance.search(request.query, request.limit)
+    return results

@@ -32,6 +32,11 @@ The backend is a containerized FastAPI application managed by Docker Compose.
     This command will build the Docker image for the backend, download any necessary base images, and start the service. You should see logs from the `uvicorn` server in your terminal.
 
     > **Note:** Keep this terminal running. Closing it will stop the backend service.
+3.  ** To re start**
+
+    ```bash
+    docker-compose down -v && docker-compose up --build
+    ```
 
 ### 2. Run the Frontend Extension
 
