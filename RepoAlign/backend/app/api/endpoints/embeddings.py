@@ -4,8 +4,8 @@ from ...services.vector_search import search_by_query
 from ...models.search import VectorSearchQuery, VectorSearchResponse, SearchResult
 from app.services.keyword_search import keyword_search_instance
 from app.models.search import KeywordSearchQuery, KeywordSearchResponse
-from ..services.hybrid_search import hybrid_search_instance
-from ..models.search import HybridSearchResponse
+from app.services.hybrid_search import hybrid_search_instance
+from app.models.search import HybridSearchResponse
 
 router = APIRouter()
 

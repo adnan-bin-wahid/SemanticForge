@@ -1,4 +1,4 @@
-from ..services.vector_search import search_vectors
+from ..services.vector_search import search_by_query as search_vectors
 from ..services.keyword_search import keyword_search_instance
 from ..models.search import VectorSearchQuery, KeywordSearchQuery, HybridSearchResponse, HybridSearchResult
 import asyncio
@@ -12,12 +12,20 @@ class HybridSearch:
         """
         Performs a hybrid search by combining vector and keyword search results.
         """
-        # Run vector and keyword searches in parallel
+        # Run vector search and prepare keyword search
         vector_search_query = VectorSearchQuery(query=query, limit=limit)
         keyword_search_query = KeywordSearchQuery(query=query, limit=limit)
 
-        vector_results_task = search_vectors(vector_search_query)
-        keyword_results_task = keyword_search_instance.search(keyword_search_query.query, keyword_search_query.limit)
+        vector_results_task = search_vectors(vector_search_query.query, vector_search_query.limit)
+        
+        # Run keyword search in an executor as it is synchronous
+        loop = asyncio.get_event_loop()
+        keyword_results_task = loop.run_in_executor(
+            None, 
+            keyword_search_instance.search, 
+            keyword_search_query.query, 
+            keyword_search_query.limit
+        )
 
         vector_response, keyword_response = await asyncio.gather(
             vector_results_task,
@@ -26,8 +34,8 @@ class HybridSearch:
 
         # Combine and rank results
         combined_results = self._combine_and_rank(
-            vector_response.results,
-            keyword_response['results']
+            vector_response,
+            keyword_response
         )
 
         # Limit to the requested number of results
@@ -47,9 +55,9 @@ class HybridSearch:
 
         # Process vector results
         for res in vector_results:
-            if res.name not in combined:
-                combined[res.name] = HybridSearchResult(name=res.name, score=0.0, docstring=res.docstring)
-            combined[res.name].score += res.score * self.vector_weight
+            if res['name'] not in combined:
+                combined[res['name']] = HybridSearchResult(name=res['name'], score=0.0, docstring=res.get('docstring'))
+            combined[res['name']].score += res['score'] * self.vector_weight
 
         # Process keyword results
         for res in keyword_results:
