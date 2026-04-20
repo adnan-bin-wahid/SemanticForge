@@ -3,6 +3,7 @@
 ## Overview
 
 Sub-phase 5.7 adds the frontend trigger functionality to the VS Code extension, allowing users to:
+
 1. Open a file in the editor
 2. Enter an instruction to improve the code
 3. Receive a generated patch with a diff and statistics
@@ -12,6 +13,7 @@ Sub-phase 5.7 adds the frontend trigger functionality to the VS Code extension, 
 ### Prerequisites
 
 1. **Backend Running**: Ensure the RepoAlign backend is running:
+
    ```bash
    docker-compose up -d
    ```
@@ -103,6 +105,7 @@ def original_function():
 ### Diff Format
 
 Standard unified diff format compatible with:
+
 - `git apply`
 - `patch` command
 - Diff viewers
@@ -113,6 +116,7 @@ Standard unified diff format compatible with:
 ### Scenario: Add Error Handling
 
 **Step 1**: Open a Python file
+
 ```python
 def validate_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -122,16 +126,19 @@ def validate_email(email: str) -> bool:
 **Step 2**: Press `Ctrl+Shift+Alt+G` or use Command Palette
 
 **Step 3**: Enter instruction:
+
 ```
 Add error handling and improve the email validation function
 ```
 
 **Step 4**: View output in RepoAlign channel with:
+
 - Generated improved version
 - Unified diff showing changes
 - Statistics about the changes
 
 **Step 5**: Decide whether to:
+
 - Copy the generated code
 - Apply the diff manually
 - Use it as inspiration
@@ -140,31 +147,37 @@ Add error handling and improve the email validation function
 ## Common Instructions
 
 ### Adding Documentation
+
 ```
 Add comprehensive docstrings with parameter descriptions and type hints
 ```
 
 ### Error Handling
+
 ```
 Add try-except blocks and proper error handling with logging
 ```
 
 ### Performance
+
 ```
 Optimize this function for better performance and reduce complexity
 ```
 
 ### Code Quality
+
 ```
 Improve code readability and follow Python best practices
 ```
 
 ### Type Safety
+
 ```
 Add type hints to all function parameters and return types
 ```
 
 ### Testing
+
 ```
 Add assertion checks and input validation at the start of this function
 ```
@@ -181,7 +194,7 @@ Add assertion checks and input validation at the start of this function
 
 3. **Review Before Applying**: Always review the diff before using generated code
 
-4. **Check Similarity Ratio**: 
+4. **Check Similarity Ratio**:
    - High ratio (>90%) = Safe, minor changes
    - Low ratio (<60%) = Review carefully, major changes
 
@@ -192,13 +205,16 @@ Add assertion checks and input validation at the start of this function
 ## Troubleshooting
 
 ### "Please open a file in the editor first"
+
 - **Solution**: Click in a file editor to give it focus, then try again
 
 ### "No instruction provided"
+
 - **Solution**: You need to enter an instruction in the input box
 - Don't leave it empty
 
 ### "Failed to generate patch"
+
 - **Possible causes**:
   1. Backend not running → Start with `docker-compose up -d`
   2. Code not indexed → Run "RepoAlign: Analyze Workspace" first
@@ -206,12 +222,14 @@ Add assertion checks and input validation at the start of this function
   4. Invalid request → Try simpler instruction
 
 ### "Command not found"
-- **Solution**: 
+
+- **Solution**:
   - Make sure extension is activated (F5 in Extension Development Host)
   - Run `npm run compile` to rebuild TypeScript
   - Reload VS Code window
 
 ### Empty or nonsensical generated code
+
 - **Explanation**: TinyLLaMA 1.1GB is small; consider upgrading to larger model
 - **Workaround**: Increase `limit` in backend request for more context
 - **Solution**: Use `codellama:7b` or better model in Ollama
@@ -219,10 +237,12 @@ Add assertion checks and input validation at the start of this function
 ## File Structure Changes (Sub-phase 5.7)
 
 **Created/Modified Files:**
+
 - `frontend/src/extension.ts` - Added `generatePatch` command
 - `frontend/package.json` - Registered new command and keybinding
 
 **Key Addition:**
+
 ```typescript
 // New command: repoalign.generatePatch
 - Shows input dialog for user instruction
@@ -234,16 +254,19 @@ Add assertion checks and input validation at the start of this function
 ## Next Steps (Sub-phases 5.8-5.10)
 
 ### 5.8: Frontend Diff Viewer
+
 - Replace output channel with native VS Code diff viewer
 - Side-by-side comparison in editor
 - Better visual representation
 
 ### 5.9: Frontend User Actions
+
 - "Accept" button to apply patch
 - "Reject" button to discard
 - "Edit" to modify before applying
 
 ### 5.10: End-to-End Loop
+
 - Full workflow: Generate → Review → Accept/Reject
 - Apply accepted patches to actual files
 - Show confirmation and undo options
@@ -255,6 +278,7 @@ Add assertion checks and input validation at the start of this function
 The frontend now has a functional trigger to generate code patches!
 
 ### What Works:
+
 - ✅ Command palette integration
 - ✅ Keyboard shortcut (Ctrl+Shift+Alt+G)
 - ✅ Input dialog for instructions
@@ -263,6 +287,7 @@ The frontend now has a functional trigger to generate code patches!
 - ✅ Results with diff and stats
 
 ### For User:
+
 - ✅ Can generate patches from VS Code editor
 - ✅ Can review diffs in output channel
 - ✅ Can copy/paste or manually apply changes

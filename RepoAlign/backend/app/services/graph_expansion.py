@@ -29,17 +29,17 @@ class GraphExpansion:
         OPTIONAL MATCH (callee_file:File)-[:DEFINES]->(callee)
         RETURN 
             s.name AS symbol,
-            s.code AS symbol_code,
+            s.content AS symbol_code,
             file.path AS symbol_path,
             collect(DISTINCT {
                 name: caller.name, 
-                code: caller.code,
+                content: caller.content,
                 path: caller_file.path,
                 type: 'caller'
             }) AS callers,
             collect(DISTINCT {
                 name: callee.name, 
-                code: callee.code,
+                content: callee.content,
                 path: callee_file.path,
                 type: 'callee'
             }) AS callees
@@ -66,7 +66,7 @@ class GraphExpansion:
             for caller in callers:
                 if caller['name'] not in neighbors:
                     neighbors[caller['name']] = {
-                        "code": caller['code'],
+                        "code": caller['content'],
                         "path": caller['path'],
                         "type": "caller"
                     }
@@ -74,7 +74,7 @@ class GraphExpansion:
             for callee in callees:
                 if callee['name'] not in neighbors:
                     neighbors[callee['name']] = {
-                        "code": callee['code'],
+                        "code": callee['content'],
                         "path": callee['path'],
                         "type": "callee"
                     }

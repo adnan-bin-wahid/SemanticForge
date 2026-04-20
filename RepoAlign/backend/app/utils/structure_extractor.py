@@ -29,13 +29,22 @@ class StructureExtractor(ast.NodeVisitor):
     """
     An AST visitor to extract top-level function, class, import, and call statements.
     """
-    def __init__(self, root_path: str = ""):
-        self.root_path = root_path
+    def __init__(self, source_code: str):
+        self.source_lines = source_code.splitlines()
         self.functions: List[Dict[str, Any]] = []
         self.classes: List[Dict[str, Any]] = []
         self.imports: List[Dict[str, Any]] = []
         self._current_function_calls: Optional[List[Dict[str, Any]]] = None
         self._current_class_methods: Optional[List[Dict[str, Any]]] = None
+
+    def _get_node_content(self, node: ast.AST) -> str:
+        """Extracts the source code of a node."""
+        if not hasattr(node, 'lineno') or not hasattr(node, 'end_lineno'):
+            return ""
+        
+        start_line = node.lineno - 1
+        end_line = node.end_lineno
+        return "\n".join(self.source_lines[start_line:end_line])
 
     def visit_Import(self, node: ast.Import):
         for alias in node.names:
@@ -64,6 +73,14 @@ class StructureExtractor(ast.NodeVisitor):
         self._current_function_calls = []
 
         self.generic_visit(node)
+
+        function_data = {
+            "name": node.name,
+            "lineno": node.lineno,
+            "end_lineno": node.end_lineno,
+            "calls": self._current_function_calls,
+            "content": self._get_node_content(node),
+        }
 
         # Extract full signature details
         args = node.args
@@ -109,13 +126,9 @@ class StructureExtractor(ast.NodeVisitor):
             "return_annotation": _unparse_annotation(node.returns)
         }
 
-        function_data = {
-            "name": node.name,
-            "lineno": node.lineno,
-            "end_lineno": node.end_lineno,
+        function_data.update({
             "signature": signature,
-            "calls": self._current_function_calls
-        }
+        })
 
         if self._current_class_methods is not None:
              self._current_class_methods.append(function_data)
@@ -135,14 +148,19 @@ class StructureExtractor(ast.NodeVisitor):
             else:
                 self.visit(child)
 
-        self.classes.append({
+        self.generic_visit(node)
+
+        class_data = {
             "name": node.name,
             "lineno": node.lineno,
             "end_lineno": node.end_lineno,
-            "bases": [_unparse_annotation(b) for b in node.bases],
-            "methods": self._current_class_methods
-        })
-        
+            "bases": [ast.unparse(b) for b in node.bases],
+            "methods": self._current_class_methods or [],
+            "content": self._get_node_content(node),
+        }
+        self.classes.append(class_data)
+
+        # Restore context
         self._current_class_methods = original_methods_context
 
     def visit_Call(self, node: ast.Call):

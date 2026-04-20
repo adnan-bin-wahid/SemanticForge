@@ -57,7 +57,8 @@ class GraphBuilder:
                     MERGE (c:Class {
                         name: $name,
                         start_line: $start_line,
-                        end_line: $end_line
+                        end_line: $end_line,
+                        content: $content
                     })
                     MERGE (f)-[:DEFINES]->(c)
                     """
@@ -67,6 +68,7 @@ class GraphBuilder:
                         name=class_def.name,
                         start_line=class_def.lineno,
                         end_line=class_def.end_lineno,
+                        content=class_def.content,
                     )
 
                 # Create Function nodes
@@ -81,7 +83,8 @@ class GraphBuilder:
                         name: $name,
                         signature: $signature,
                         start_line: $start_line,
-                        end_line: $end_line
+                        end_line: $end_line,
+                        content: $content
                     })
                     MERGE (f)-[:DEFINES]->(func)
                     """
@@ -92,6 +95,7 @@ class GraphBuilder:
                         signature=signature_str,
                         start_line=func_def.lineno,
                         end_line=func_def.end_lineno,
+                        content=func_def.content,
                     )
 
     async def _create_inheritance_relationships(self, analysis_data: AnalysisResult):

@@ -20,7 +20,7 @@ class AnalysisService:
             try:
                 tree = ast.parse(file_content.content)
                 if tree:
-                    extractor = StructureExtractor(root_path=".")
+                    extractor = StructureExtractor(file_content.content)
                     extractor.visit(tree)
 
                     # Convert dicts to Pydantic models

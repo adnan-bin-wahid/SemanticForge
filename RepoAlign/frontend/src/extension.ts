@@ -107,6 +107,37 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  // --- Diff Content Provider Setup ---
+  const diffContentProvider = new (class
+    implements vscode.TextDocumentContentProvider
+  {
+    private contentStore = new Map<string, string>();
+    private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
+
+    get onDidChange(): vscode.Event<vscode.Uri> {
+      return this._onDidChange.event;
+    }
+
+    provideTextDocumentContent(uri: vscode.Uri): string {
+      return this.contentStore.get(uri.toString()) || "";
+    }
+
+    update(originalUri: vscode.Uri, generatedUri: vscode.Uri, originalContent: string, generatedContent: string) {
+      this.contentStore.set(originalUri.toString(), originalContent);
+      this.contentStore.set(generatedUri.toString(), generatedContent);
+      
+      this._onDidChange.fire(originalUri);
+      this._onDidChange.fire(generatedUri);
+    }
+  })();
+
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      "repoalign-diff",
+      diffContentProvider,
+    ),
+  );
+
   // Command to generate a code patch based on user instruction
   let generatePatchDisposable = vscode.commands.registerCommand(
     "repoalign.generatePatch",
@@ -172,60 +203,42 @@ export function activate(context: vscode.ExtensionContext) {
 
               const result = response.data;
 
-              // 6. Create output channel to display results
-              const outputChannel =
-                vscode.window.createOutputChannel("RepoAlign");
-              outputChannel.clear();
-              outputChannel.appendLine(
-                "=== RepoAlign Patch Generation Results ===",
+              // 6. Define unique URIs for the diff view
+              const originalUri = vscode.Uri.parse(`repoalign-diff:${filePath}.original`);
+              const generatedUri = vscode.Uri.parse(`repoalign-diff:${filePath}.generated`);
+
+              // 7. Update the content provider with the new content
+              diffContentProvider.update(originalUri, generatedUri, originalContent, result.generated_code);
+
+              // 8. Show the diff view
+              await vscode.commands.executeCommand(
+                "vscode.diff",
+                originalUri,
+                generatedUri,
+                `RepoAlign: ${filePath} (Original vs. Generated)`,
               );
-              outputChannel.appendLine("");
-              outputChannel.appendLine(`Query: ${result.query}`);
-              outputChannel.appendLine(`File: ${result.file_path}`);
-              outputChannel.appendLine("");
-              outputChannel.appendLine("--- Statistics ---");
-              outputChannel.appendLine(
-                `Lines Added: ${result.stats.lines_added}`,
-              );
-              outputChannel.appendLine(
-                `Lines Removed: ${result.stats.lines_removed}`,
-              );
-              outputChannel.appendLine(
-                `Lines Modified: ${result.stats.lines_modified}`,
-              );
-              outputChannel.appendLine(
-                `Total Changes: ${result.stats.total_changes}`,
-              );
-              outputChannel.appendLine(
-                `Similarity Ratio: ${(result.stats.similarity_ratio * 100).toFixed(2)}%`,
-              );
-              outputChannel.appendLine("");
-              outputChannel.appendLine("--- Generated Diff ---");
-              outputChannel.appendLine(result.unified_diff);
-              outputChannel.appendLine("");
-              outputChannel.appendLine("--- Generated Code ---");
-              outputChannel.appendLine(result.generated_code);
-              outputChannel.show();
 
               progress.report({
                 increment: 100,
-                message: "Patch generated successfully!",
+                message: "Patch displayed.",
               });
 
               vscode.window.showInformationMessage(
-                `Patch generated! View results in the RepoAlign output channel.`,
+                "Patch generated! Review the changes in the diff viewer.",
               );
-            } catch (error: any) {
+            } catch (error) {
               vscode.window.showErrorMessage(
-                `Failed to generate patch: ${error.response?.data?.detail || error.message}`,
+                "Failed to generate code patch. See console for details.",
               );
               console.error("Patch generation error:", error);
             }
           },
         );
       } catch (error) {
-        vscode.window.showErrorMessage("An error occurred during patch generation.");
-        console.error(error);
+        vscode.window.showErrorMessage(
+          "An error occurred while running the command.",
+        );
+        console.error("Command execution error:", error);
       }
     },
   );

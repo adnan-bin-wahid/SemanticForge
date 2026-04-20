@@ -21,6 +21,7 @@ class FunctionDef(BaseModel):
     end_lineno: int
     signature: SignatureDef
     calls: List[CallDef]
+    content: str
 
 class ClassDef(BaseModel):
     name: str
@@ -28,6 +29,7 @@ class ClassDef(BaseModel):
     end_lineno: int
     bases: List[str]
     methods: List[FunctionDef]
+    content: str
 
 class ImportDef(BaseModel):
     type: str
