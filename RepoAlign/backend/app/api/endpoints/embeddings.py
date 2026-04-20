@@ -6,6 +6,9 @@ from app.services.keyword_search import keyword_search_instance
 from app.models.search import KeywordSearchQuery, KeywordSearchResponse
 from app.services.hybrid_search import hybrid_search_instance
 from app.models.search import HybridSearchResponse
+from app.services.graph_expansion import GraphExpansion
+from app.models.search import GraphExpansionRequest, GraphExpansionResponse
+from fastapi import Request
 
 router = APIRouter()
 
@@ -82,3 +85,12 @@ async def hybrid_search(request: VectorSearchQuery):
     """
     results = await hybrid_search_instance.search(request.query, request.limit)
     return results
+
+@router.post("/expand-context", response_model=GraphExpansionResponse)
+async def expand_context(fastapi_req: Request, request: GraphExpansionRequest):
+    """
+    Expand the context of a list of symbols by querying the graph for neighbors.
+    """
+    graph_expansion_service = fastapi_req.app.state.graph_expansion_service
+    expanded_context = await graph_expansion_service.expand_context(request.symbols)
+    return GraphExpansionResponse(expanded_context=expanded_context)

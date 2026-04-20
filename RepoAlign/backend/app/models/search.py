@@ -46,3 +46,23 @@ class HybridSearchResponse(BaseModel):
     query: str
     results: list[HybridSearchResult]
     total_results: int
+
+class GraphExpansionRequest(BaseModel):
+    """Request model for graph expansion."""
+    symbols: list[str]
+    
+class NeighborInfo(BaseModel):
+    """Information about a neighboring symbol."""
+    code: str | None
+    path: str | None
+    type: str # "caller" or "callee"
+
+class SymbolContext(BaseModel):
+    """Expanded context for a single symbol."""
+    code: str | None
+    path: str | None
+    neighbors: dict[str, NeighborInfo]
+
+class GraphExpansionResponse(BaseModel):
+    """Response model for graph expansion."""
+    expanded_context: dict[str, SymbolContext]
