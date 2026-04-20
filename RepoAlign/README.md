@@ -71,6 +71,7 @@ The backend is a containerized FastAPI application managed by Docker Compose. It
 Once the backend is running, you can test the core functionality:
 
 **Test Context Retrieval:**
+
 ```bash
 curl -X 'POST' \
   'http://localhost:8000/api/v1/retrieve-context' \
@@ -83,6 +84,7 @@ curl -X 'POST' \
 ```
 
 **Test Code Generation:**
+
 ```bash
 curl -X 'POST' \
   'http://localhost:8000/api/v1/generate-code' \
@@ -137,15 +139,19 @@ You have now successfully set up and run the full RepoAlign system.
 ### Troubleshooting
 
 **Issue: Qdrant collection not found**
+
 - Run: `curl -X 'POST' 'http://localhost:8000/api/v1/index-embeddings'`
 
 **Issue: To restart everything cleanly**
+
 - Run: `docker-compose down -v && docker-compose up --build -d`
 - Then re-pull model: `docker-compose exec ollama ollama pull tinyllama`
 - And re-index: `curl -X 'POST' 'http://localhost:8000/api/v1/index-embeddings'`
 
 **Issue: Check backend logs**
+
 - Run: `docker-compose logs -f backend`
 
 **Issue: Check Ollama logs**
+
 - Run: `docker-compose logs -f ollama`
