@@ -11,7 +11,8 @@
   ],
   "activationEvents": [
     "onCommand:repoalign.healthCheck",
-    "onCommand:repoalign.analyzeWorkspace"
+    "onCommand:repoalign.analyzeWorkspace",
+    "onCommand:repoalign.generatePatch"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -23,6 +24,19 @@
       {
         "command": "repoalign.analyzeWorkspace",
         "title": "RepoAlign: Analyze Workspace"
+      },
+      {
+        "command": "repoalign.generatePatch",
+        "title": "RepoAlign: Generate Code Patch",
+        "when": "editorTextFocus"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "repoalign.generatePatch",
+        "key": "ctrl+shift+alt+g",
+        "mac": "cmd+shift+alt+g",
+        "when": "editorTextFocus"
       }
     ]
   },
