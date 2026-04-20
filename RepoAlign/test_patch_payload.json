@@ -1,0 +1,6 @@
+{
+  "query": "Enhance the validate_email function to extract and return the domain part of the email address",
+  "original_content": "import re\nfrom typing import List\n\ndef format_greeting(name: str) -> str:\n    \"\"\"Formats a greeting message.\"\"\"\n    return f\"Hello, {name}!\"\n\ndef validate_email(email: str) -> bool:\n    \"\"\"Validates if an email address has correct format.\"\"\"\n    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'\n    return re.match(pattern, email) is not None\n\ndef sanitize_input(user_input: str) -> str:\n    \"\"\"Removes leading/trailing whitespace and converts to lowercase.\"\"\"\n    return user_input.strip().lower()\n\ndef split_fullname(fullname: str) -> tuple[str, str]:\n    \"\"\"Splits a full name into first and last names.\"\"\"\n    parts = fullname.split()\n    if len(parts) >= 2:\n        return parts[0], \" \".join(parts[1:])\n    return fullname, \"\"\n\ndef format_user_info(name: str, email: str) -> str:\n    \"\"\"Formats user information into a readable string.\"\"\"\n    domain = email.split('@')[1] if '@' in email else 'unknown'\n    return f\"{name} ({email}) - domain: {domain}\"",
+  "file_path": "test-project/utils/helpers.py",
+  "limit": 10
+}

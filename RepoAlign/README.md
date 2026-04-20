@@ -96,6 +96,29 @@ curl -X 'POST' \
 }'
 ```
 
+**Test Patch Generation (NEW Sub-phase 5.6):**
+
+```bash
+curl -X 'POST' \
+  'http://localhost:8000/api/v1/generate-patch' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "query": "add error handling to the validate_email function",
+  "original_content": "def validate_email(email: str) -> bool:\\n    pattern = r'"'"'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'"'"'\\n    return bool(re.match(pattern, email))",
+  "file_path": "utils/helpers.py",
+  "limit": 10
+}'
+```
+
+This endpoint generates code and compares it with the original to create a diff/patch. Response includes:
+- `unified_diff`: Standard diff format (git-compatible)
+- `stats`: Diff statistics (lines added/removed, similarity ratio)
+- `generated_code`: The LLM-generated code
+- `file_path`: File path used in diff header
+
+For detailed patch generation testing, see: `TEST_GENERATE_PATCH.md`
+
 You can also explore the API interactively at: **http://localhost:8000/docs**
 
 ### 3. Run the Frontend Extension

@@ -77,3 +77,30 @@ class ContextRetrievalResponse(BaseModel):
     query: str
     search_results: list[HybridSearchResult]
     expanded_context: dict[str, SymbolContext]
+
+
+class GeneratePatchRequest(BaseModel):
+    """Request model for patch generation."""
+    query: str  # The user's instruction for code generation
+    original_content: str  # Original file content to compare against
+    file_path: str = "generated.py"  # For use in diff header
+    limit: int = 10  # Number of context results to use
+
+
+class DiffStats(BaseModel):
+    """Statistics about generated diff."""
+    lines_added: int
+    lines_removed: int
+    lines_modified: int
+    total_changes: int
+    similarity_ratio: float  # 0.0 to 1.0
+    identical: bool
+
+
+class GeneratePatchResponse(BaseModel):
+    """Response model for patch generation."""
+    query: str
+    unified_diff: str  # The actual diff in unified format
+    stats: DiffStats
+    generated_code: str  # The generated code
+    file_path: str

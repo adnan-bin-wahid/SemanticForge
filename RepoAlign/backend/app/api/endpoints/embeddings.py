@@ -9,7 +9,9 @@ from app.models.search import HybridSearchResponse
 from app.services.graph_expansion import GraphExpansion
 from app.models.search import GraphExpansionRequest, GraphExpansionResponse
 from app.models.search import ContextRetrievalRequest, ContextRetrievalResponse
+from app.models.search import GeneratePatchRequest, GeneratePatchResponse, DiffStats
 from app.services.code_generation import CodeGenerator
+from app.services.diff_generator import DiffGenerator
 from fastapi import Request
 
 router = APIRouter()
@@ -114,17 +116,51 @@ async def generate_code(fastapi_req: Request, request: ContextRetrievalRequest):
     code_generator = fastapi_req.app.state.code_generator
     result = await code_generator.generate_code(request.query, request.limit)
     return result
+
+
+@router.post("/generate-patch", response_model=GeneratePatchResponse)
+async def generate_patch(fastapi_req: Request, request: GeneratePatchRequest):
     """
-    Retrieve a rich, structured context for a given query.
-    Orchestrates hybrid search and graph expansion.
-    """
-    context_retriever = fastapi_req.app.state.context_retriever
-    response_data = await context_retriever.retrieve_context(request.query, request.limit)
+    Generate a patch/diff by comparing original code with LLM-generated code.
     
-    # The response from the service already matches the structure needed,
-    # but we'll build the Pydantic model for validation and clarity.
-    return ContextRetrievalResponse(
-        query=response_data["query"],
-        search_results=response_data["search_results"],
-        expanded_context=response_data["expanded_context"]
+    Args:
+        fastapi_req: FastAPI request context (contains app state)
+        request: GeneratePatchRequest containing:
+            - query: User instruction for code generation
+            - original_content: Original file content to compare against
+            - file_path: Path for the diff header (default: "generated.py")
+            - limit: Number of context results to use (default: 10)
+    
+    Returns:
+        GeneratePatchResponse containing:
+            - unified_diff: Standard unified diff format (git-compatible)
+            - stats: Diff statistics (lines added/removed/modified, similarity ratio)
+            - generated_code: The LLM-generated code
+            - file_path: The file path used in the diff
+    """
+    code_generator = fastapi_req.app.state.code_generator
+    diff_generator = DiffGenerator()
+    
+    # Step 1: Generate code based on user instruction
+    generation_result = await code_generator.generate_code(request.query, request.limit)
+    generated_code = generation_result.get("generated_code", "")
+    
+    # Step 2: Create diff between original and generated
+    unified_diff = diff_generator.generate_unified_diff(
+        original_content=request.original_content,
+        generated_content=generated_code,
+        file_path=request.file_path
+    )
+    
+    # Step 3: Calculate statistics
+    stats_dict = diff_generator.get_diff_stats(request.original_content, generated_code)
+    stats = DiffStats(**stats_dict)
+    
+    # Step 4: Return complete response
+    return GeneratePatchResponse(
+        query=request.query,
+        unified_diff=unified_diff,
+        stats=stats,
+        generated_code=generated_code,
+        file_path=request.file_path
     )
