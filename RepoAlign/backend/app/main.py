@@ -4,6 +4,7 @@ from .api.endpoints import health, ingestion, graph, build_graph, embeddings
 from .db import neo4j_driver, qdrant_client
 from .services.graph_expansion import GraphExpansion
 from .services.context_retriever import ContextRetriever
+from .services.code_generation import CodeGenerator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -12,7 +13,9 @@ async def lifespan(app: FastAPI):
         async with qdrant_client.lifespan(app):
             graph_expansion_service = GraphExpansion()
             app.state.graph_expansion_service = graph_expansion_service
-            app.state.context_retriever = ContextRetriever(graph_expansion_service)
+            context_retriever = ContextRetriever(graph_expansion_service)
+            app.state.context_retriever = context_retriever
+            app.state.code_generator = CodeGenerator(context_retriever, "http://ollama:11434")
             yield
             graph_expansion_service.close()
 

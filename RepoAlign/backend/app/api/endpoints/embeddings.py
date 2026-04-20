@@ -9,6 +9,7 @@ from app.models.search import HybridSearchResponse
 from app.services.graph_expansion import GraphExpansion
 from app.models.search import GraphExpansionRequest, GraphExpansionResponse
 from app.models.search import ContextRetrievalRequest, ContextRetrievalResponse
+from app.services.code_generation import CodeGenerator
 from fastapi import Request
 
 router = APIRouter()
@@ -98,6 +99,21 @@ async def expand_context(fastapi_req: Request, request: GraphExpansionRequest):
 
 @router.post("/retrieve-context", response_model=ContextRetrievalResponse)
 async def retrieve_context(fastapi_req: Request, request: ContextRetrievalRequest):
+    """
+    Orchestrates the full context retrieval pipeline.
+    """
+    context_retriever = fastapi_req.app.state.context_retriever
+    response_data = await context_retriever.retrieve_context(request.query, request.limit)
+    return ContextRetrievalResponse(**response_data)
+
+@router.post("/generate-code")
+async def generate_code(fastapi_req: Request, request: ContextRetrievalRequest):
+    """
+    Generate code based on a user instruction.
+    """
+    code_generator = fastapi_req.app.state.code_generator
+    result = await code_generator.generate_code(request.query, request.limit)
+    return result
     """
     Retrieve a rich, structured context for a given query.
     Orchestrates hybrid search and graph expansion.

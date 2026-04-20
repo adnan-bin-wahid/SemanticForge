@@ -19,28 +19,86 @@ To get the project running, you will need to start the backend service and the f
 
 ### 1. Start the Backend Service
 
-The backend is a containerized FastAPI application managed by Docker Compose.
+The backend is a containerized FastAPI application managed by Docker Compose. It includes Neo4j (knowledge graph), Qdrant (vector database), and Ollama (local LLM).
 
 1.  **Open a terminal** at the root of the `RepoAlign` project directory.
 
-2.  **Build and run the backend container** using the following command:
+2.  **Stop and clean up any existing containers** (recommended for fresh starts):
 
     ```bash
-    docker compose up --build
+    docker-compose down -v
     ```
 
-    This command will build the Docker image for the backend, download any necessary base images, and start the service. You should see logs from the `uvicorn` server in your terminal.
-
-    > **Note:** Keep this terminal running. Closing it will stop the backend service.
-3.  ** To re start**
+3.  **Build and run all services**:
 
     ```bash
-    docker-compose down -v && docker-compose up --build
+    docker-compose up --build -d
     ```
 
-### 2. Run the Frontend Extension
+    This command will:
+    - Build the Docker image for the backend
+    - Start all services: backend, neo4j, qdrant, and ollama
+    - Run them in detached mode (`-d`)
 
-The frontend is a VS Code extension that you will launch in a separate development environment.
+4.  **Verify all services are running**:
+
+    ```bash
+    docker-compose ps
+    ```
+
+    You should see 4 services with status "Up".
+
+5.  **Pull the TinyLLaMA model** (required for code generation):
+
+    ```bash
+    docker-compose exec ollama ollama pull tinyllama
+    ```
+
+    This may take a few minutes depending on your internet connection. The model (~1.1GB) will be downloaded and stored.
+
+6.  **Index embeddings** (required on first run or after data reset):
+
+    ```bash
+    curl -X 'POST' \
+      'http://localhost:8000/api/v1/index-embeddings' \
+      -H 'accept: application/json'
+    ```
+
+    This will generate embeddings for all code symbols and store them in Qdrant for semantic search.
+
+### 2. Test the Backend API
+
+Once the backend is running, you can test the core functionality:
+
+**Test Context Retrieval:**
+```bash
+curl -X 'POST' \
+  'http://localhost:8000/api/v1/retrieve-context' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "query": "user",
+  "limit": 10
+}'
+```
+
+**Test Code Generation:**
+```bash
+curl -X 'POST' \
+  'http://localhost:8000/api/v1/generate-code' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "query": "create a function to calculate factorial",
+  "limit": 10
+}'
+```
+
+You can also explore the API interactively at: **http://localhost:8000/docs**
+
+### 3. Run the Frontend Extension
+
+The frontend is a VS Code extension that communicates with the backend.
 
 1.  **Open a new terminal** and navigate to the `frontend` directory:
 
@@ -55,25 +113,39 @@ The frontend is a VS Code extension that you will launch in a separate developme
     ```
 
 3.  **Compile the TypeScript code:**
+
     ```bash
     npm run compile
     ```
-4.  **Open the frontend project in VS Code.** You can do this directly from your terminal:
 
-    ```bash
-    code .
-    ```
+4.  **Launch the Extension Development Host** by pressing `F5` in VS Code's frontend folder.
 
-4.  Once the `frontend` folder is open in a new VS Code window, **press `F5`**. This will compile the TypeScript code and launch a new "Extension Development Host" window with the RepoAlign extension activated.
+    This will open a new VS Code window with the RepoAlign extension activated.
 
-### 3. Verify the Setup
+### 4. Verify the Full Setup
 
 Now, let's test that the frontend and backend are communicating correctly.
 
-1.  In the new **"Extension Development Host"** VS Code window (the one that appeared after you pressed `F5`), open the **Command Palette** (`Ctrl+Shift+P` or `Cmd+Shift+P`).
+1.  In the new **"Extension Development Host"** VS Code window, open the **Command Palette** (`Ctrl+Shift+P` or `Cmd+Shift+P`).
 
 2.  Type `RepoAlign` and select the command **"RepoAlign: Health Check"**.
 
 3.  If everything is working correctly, a notification will appear in the bottom-right corner with the message: **"RepoAlign Backend is running!"**
 
-You have now successfully set up and run the RepoAlign project.
+You have now successfully set up and run the full RepoAlign system.
+
+### Troubleshooting
+
+**Issue: Qdrant collection not found**
+- Run: `curl -X 'POST' 'http://localhost:8000/api/v1/index-embeddings'`
+
+**Issue: To restart everything cleanly**
+- Run: `docker-compose down -v && docker-compose up --build -d`
+- Then re-pull model: `docker-compose exec ollama ollama pull tinyllama`
+- And re-index: `curl -X 'POST' 'http://localhost:8000/api/v1/index-embeddings'`
+
+**Issue: Check backend logs**
+- Run: `docker-compose logs -f backend`
+
+**Issue: Check Ollama logs**
+- Run: `docker-compose logs -f ollama`
