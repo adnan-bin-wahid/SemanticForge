@@ -66,3 +66,14 @@ class SymbolContext(BaseModel):
 class GraphExpansionResponse(BaseModel):
     """Response model for graph expansion."""
     expanded_context: dict[str, SymbolContext]
+
+class ContextRetrievalRequest(BaseModel):
+    """Request model for full context retrieval."""
+    query: str
+    limit: int = 10
+
+class ContextRetrievalResponse(BaseModel):
+    """Response model for full context retrieval."""
+    query: str
+    search_results: list[HybridSearchResult]
+    expanded_context: dict[str, SymbolContext]

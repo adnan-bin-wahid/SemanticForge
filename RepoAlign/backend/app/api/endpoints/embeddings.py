@@ -8,6 +8,7 @@ from app.services.hybrid_search import hybrid_search_instance
 from app.models.search import HybridSearchResponse
 from app.services.graph_expansion import GraphExpansion
 from app.models.search import GraphExpansionRequest, GraphExpansionResponse
+from app.models.search import ContextRetrievalRequest, ContextRetrievalResponse
 from fastapi import Request
 
 router = APIRouter()
@@ -94,3 +95,20 @@ async def expand_context(fastapi_req: Request, request: GraphExpansionRequest):
     graph_expansion_service = fastapi_req.app.state.graph_expansion_service
     expanded_context = await graph_expansion_service.expand_context(request.symbols)
     return GraphExpansionResponse(expanded_context=expanded_context)
+
+@router.post("/retrieve-context", response_model=ContextRetrievalResponse)
+async def retrieve_context(fastapi_req: Request, request: ContextRetrievalRequest):
+    """
+    Retrieve a rich, structured context for a given query.
+    Orchestrates hybrid search and graph expansion.
+    """
+    context_retriever = fastapi_req.app.state.context_retriever
+    response_data = await context_retriever.retrieve_context(request.query, request.limit)
+    
+    # The response from the service already matches the structure needed,
+    # but we'll build the Pydantic model for validation and clarity.
+    return ContextRetrievalResponse(
+        query=response_data["query"],
+        search_results=response_data["search_results"],
+        expanded_context=response_data["expanded_context"]
+    )
