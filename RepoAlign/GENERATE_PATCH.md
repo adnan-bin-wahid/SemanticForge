@@ -3,6 +3,7 @@
 ## Overview
 
 The `/generate-patch` endpoint combines:
+
 1. **CodeGenerator** - Creates LLM-generated code
 2. **DiffGenerator** - Compares original vs generated to create a patch
 
@@ -25,12 +26,12 @@ POST /api/v1/generate-patch
 
 ### Request Parameters
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | Yes | User instruction for code generation |
-| `original_content` | string | Yes | Original file content to compare against |
-| `file_path` | string | No | Path for diff header (default: "generated.py") |
-| `limit` | integer | No | Number of context results (default: 10) |
+| Parameter          | Type    | Required | Description                                    |
+| ------------------ | ------- | -------- | ---------------------------------------------- |
+| `query`            | string  | Yes      | User instruction for code generation           |
+| `original_content` | string  | Yes      | Original file content to compare against       |
+| `file_path`        | string  | No       | Path for diff header (default: "generated.py") |
+| `limit`            | integer | No       | Number of context results (default: 10)        |
 
 ## Response Format
 
@@ -53,19 +54,19 @@ POST /api/v1/generate-patch
 
 ### Response Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `query` | string | The user's instruction (echoed back) |
-| `unified_diff` | string | Standard unified diff format (git-compatible) |
-| `stats` | object | Diff statistics |
-| `stats.lines_added` | int | Number of lines added |
-| `stats.lines_removed` | int | Number of lines removed |
-| `stats.lines_modified` | int | Number of lines modified |
-| `stats.total_changes` | int | Total number of changes |
-| `stats.similarity_ratio` | float | Similarity ratio (0.0-1.0) |
-| `stats.identical` | boolean | Whether files are identical |
-| `generated_code` | string | The full LLM-generated code |
-| `file_path` | string | File path used in diff header |
+| Field                    | Type    | Description                                   |
+| ------------------------ | ------- | --------------------------------------------- |
+| `query`                  | string  | The user's instruction (echoed back)          |
+| `unified_diff`           | string  | Standard unified diff format (git-compatible) |
+| `stats`                  | object  | Diff statistics                               |
+| `stats.lines_added`      | int     | Number of lines added                         |
+| `stats.lines_removed`    | int     | Number of lines removed                       |
+| `stats.lines_modified`   | int     | Number of lines modified                      |
+| `stats.total_changes`    | int     | Total number of changes                       |
+| `stats.similarity_ratio` | float   | Similarity ratio (0.0-1.0)                    |
+| `stats.identical`        | boolean | Whether files are identical                   |
+| `generated_code`         | string  | The full LLM-generated code                   |
+| `file_path`              | string  | File path used in diff header                 |
 
 ## Testing with curl
 
@@ -87,6 +88,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 1. Read the file content into a variable:
 
 **Bash/Linux:**
+
 ```bash
 ORIGINAL=$(cat test-project/utils/helpers.py | jq -Rs .)
 
@@ -101,6 +103,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 **PowerShell (Windows):**
+
 ```powershell
 $content = Get-Content -Path "test-project/utils/helpers.py" -Raw | ConvertTo-Json
 
@@ -233,6 +236,7 @@ with open("generated.patch", "w") as f:
 ### Diff Format
 
 The `unified_diff` uses standard unified diff format:
+
 - `---` lines show deleted content
 - `+++` lines show added content
 - `@@` sections show change locations
@@ -250,19 +254,23 @@ The `unified_diff` uses standard unified diff format:
 The `/generate-patch` endpoint provides the backend foundation for:
 
 ### 5.7: Frontend Patch Display
+
 - Show unified diff in editor with syntax highlighting
 - Color-coded additions (green) and deletions (red)
 
 ### 5.8: Patch Application UI
+
 - "Accept" button to apply patch
 - "Reject" button to discard patch
 - "Edit" to manually adjust before applying
 
 ### 5.9: Patch History
+
 - Keep track of generated patches
 - Allow reviewing previous suggestions
 
 ### 5.10: Integration with VS Code
+
 - Inline code lens for "Generate better code"
 - QuickFix that shows generated patch inline
 - Diff preview before acceptance
@@ -272,11 +280,13 @@ The `/generate-patch` endpoint provides the backend foundation for:
 ### 500 Internal Server Error
 
 **Check the backend logs:**
+
 ```bash
 docker-compose logs backend
 ```
 
 **Common issues:**
+
 - Ollama service not running: `docker-compose logs ollama`
 - Context retriever failing: Check Neo4j/Qdrant connection
 - Invalid JSON in request: Verify JSON syntax
@@ -284,6 +294,7 @@ docker-compose logs backend
 ### Empty Generated Code
 
 This means the LLM didn't understand the query or had no context. Try:
+
 1. Increase `limit` parameter to get more context
 2. Make query more specific
 3. Check that code has been indexed with `/index-embeddings`
@@ -291,6 +302,7 @@ This means the LLM didn't understand the query or had no context. Try:
 ### Very High Similarity (>0.99)
 
 This suggests the LLM mostly repeated the original. Try:
+
 1. More specific instruction ("improve error handling with try/except")
 2. Different query phrasing
 3. Check if context is relevant to query

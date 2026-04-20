@@ -53,6 +53,7 @@ The complete Phase 5 system consists of these integrated components:
 ## Complete Workflow: `/generate-patch` Full Path
 
 ### 1. **Request Arrival**
+
 ```
 POST /api/v1/generate-patch
 {
@@ -64,6 +65,7 @@ POST /api/v1/generate-patch
 ```
 
 ### 2. **Code Generation Phase (5.1-5.4)**
+
 ```
 CodeGenerator.generate_code(query, limit)
     ↓
@@ -81,6 +83,7 @@ Returns: Generated Python code
 ```
 
 ### 3. **Diff Generation Phase (Sub-phase 5.5-5.6)**
+
 ```
 DiffGenerator.generate_unified_diff(original, generated)
     ↓
@@ -94,6 +97,7 @@ Returns: Statistics (changes, similarity, etc.)
 ```
 
 ### 4. **Response Formation**
+
 ```
 GeneratePatchResponse
 {
@@ -117,11 +121,13 @@ GeneratePatchResponse
 **Status**: Fully operational
 
 **Components**:
+
 - TinyLLaMA 1.1GB model in Docker
 - HTTP API on `http://ollama:11434`
 - Health check endpoint implemented
 
 **Files**:
+
 - Docker Compose configuration manages Ollama container
 - Model accessible via standard HTTP requests
 
@@ -130,6 +136,7 @@ GeneratePatchResponse
 **Status**: 4-section structured format working
 
 **Template Structure**:
+
 ```
 [1] INSTRUCTION: User's query and desired outcome
 [2] RELEVANT CODE: Retrieved context from codebase
@@ -138,6 +145,7 @@ GeneratePatchResponse
 ```
 
 **Features**:
+
 - Clean formatting for LLM consumption
 - Context-aware prompt generation
 - Temperature control (0.7 default)
@@ -149,12 +157,14 @@ GeneratePatchResponse
 **Status**: Fully operational
 
 **Class**: `OllamaClient`
+
 - `async generate(prompt, temperature, max_tokens)` - Send prompts to LLM
 - `async health_check()` - Verify LLM availability
 - Error handling and timeout management
 - Async/await for non-blocking I/O
 
 **Integration**:
+
 - Used by CodeGenerator
 - Callable from API endpoints
 - Production-ready error handling
@@ -166,17 +176,20 @@ GeneratePatchResponse
 **Status**: Fully operational (Bug fixed and validated)
 
 **Class**: `CodeGenerator`
+
 - `async generate_code(query, limit, temperature)` - Main orchestration method
 - `_format_prompt(instruction, context)` - 4-section prompt formatting
 - Integrates ContextRetriever + OllamaClient
 - Confidence scoring: "High" (>0.7), "Medium" (>0.4), "Low" (≤0.4)
 
 **Validation**:
+
 - ✅ `/generate-code` endpoint returns Status 200 OK
 - ✅ Generated code is contextually appropriate
 - ✅ Prompt shows rich context from test-project
 
 **Bug Fixed**:
+
 - Removed non-existent `result.type` attribute (was causing AttributeError)
 - Improved error handling and response validation
 
@@ -187,6 +200,7 @@ GeneratePatchResponse
 **Status**: Fully operational
 
 **Class**: `DiffGenerator`
+
 - `generate_unified_diff(original, generated, file_path)` - Standard git-compatible diff
 - `generate_context_diff(original, generated, context_lines)` - Shows surrounding lines
 - `get_diff_stats(original, generated)` - Calculate changes and similarity
@@ -196,6 +210,7 @@ GeneratePatchResponse
 - `load_patch_file(file_path)` - Load from disk
 
 **Key Features**:
+
 - Uses Python's standard `difflib` library
 - Returns similarity ratio (0.0-1.0)
 - Counts lines added/removed/modified
@@ -214,6 +229,7 @@ GeneratePatchResponse
 **Location**: `backend/app/api/endpoints/embeddings.py`
 
 **Request Model**: `GeneratePatchRequest`
+
 ```python
 {
   "query": str,                    # User instruction
@@ -224,6 +240,7 @@ GeneratePatchResponse
 ```
 
 **Response Model**: `GeneratePatchResponse`
+
 ```python
 {
   "query": str,
@@ -235,6 +252,7 @@ GeneratePatchResponse
 ```
 
 **DiffStats Model**:
+
 ```python
 {
   "lines_added": int,
@@ -247,6 +265,7 @@ GeneratePatchResponse
 ```
 
 **Features**:
+
 - Integrates CodeGenerator + DiffGenerator
 - Automatic context retrieval
 - Comprehensive diff statistics
@@ -292,16 +311,19 @@ GeneratePatchResponse
 ## Quick Start Testing
 
 ### Test 1: Health Check
+
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
 
 ### Test 2: Index Embeddings
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/index-embeddings
 ```
 
 ### Test 3: Generate Code
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-code \
   -H "Content-Type: application/json" \
@@ -309,6 +331,7 @@ curl -X POST http://localhost:8000/api/v1/generate-code \
 ```
 
 ### Test 4: Generate Patch (NEW!)
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -317,16 +340,16 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 
 ## System Status Summary
 
-| Component | Status | Details |
-|-----------|--------|---------|
-| Ollama LLM | ✅ Ready | TinyLLaMA running in Docker |
-| Embedding Index | ✅ Ready | Qdrant configured and operational |
-| Context Retrieval | ✅ Ready | Hybrid search + graph expansion |
-| Code Generator | ✅ Ready | Tested with `/generate-code` endpoint |
-| Diff Generator | ✅ Ready | All methods implemented and working |
-| `/generate-patch` Endpoint | ✅ Ready | Fully integrated and tested |
-| Test Project | ✅ Ready | Rich codebase for testing |
-| Documentation | ✅ Ready | 4+ testing guides created |
+| Component                  | Status   | Details                               |
+| -------------------------- | -------- | ------------------------------------- |
+| Ollama LLM                 | ✅ Ready | TinyLLaMA running in Docker           |
+| Embedding Index            | ✅ Ready | Qdrant configured and operational     |
+| Context Retrieval          | ✅ Ready | Hybrid search + graph expansion       |
+| Code Generator             | ✅ Ready | Tested with `/generate-code` endpoint |
+| Diff Generator             | ✅ Ready | All methods implemented and working   |
+| `/generate-patch` Endpoint | ✅ Ready | Fully integrated and tested           |
+| Test Project               | ✅ Ready | Rich codebase for testing             |
+| Documentation              | ✅ Ready | 4+ testing guides created             |
 
 ## What's Working End-to-End
 
@@ -351,21 +374,25 @@ Ready to Display/Apply/Review
 These phases will build on the solid foundation we've created:
 
 ### 5.7: Frontend Patch Display
+
 - VS Code webview to show generated patches
 - Syntax highlighting for code changes
 - Color-coded additions (green) and deletions (red)
 
 ### 5.8: Patch Application UI
+
 - "Accept" button to apply patch suggestion
 - "Reject" button to discard
 - "Edit" to manually adjust before applying
 
 ### 5.9: Patch History
+
 - Track generated suggestions
 - Review previous patches
 - Accept/reject history
 
 ### 5.10: VS Code Integration
+
 - Code lens showing "Generate improved code"
 - Quick fix suggesting available improvements
 - Diff preview inline
@@ -374,15 +401,19 @@ These phases will build on the solid foundation we've created:
 ## Files Created/Modified
 
 **Services Created**:
+
 - `backend/app/services/diff_generator.py` (NEW - 5.5)
 
 **Models Updated**:
+
 - `backend/app/models/search.py` - Added GeneratePatchRequest, GeneratePatchResponse, DiffStats
 
 **Endpoints Updated**:
+
 - `backend/app/api/endpoints/embeddings.py` - Added `/generate-patch` endpoint
 
 **Documentation Created**:
+
 - `GENERATE_PATCH.md` - Full endpoint documentation
 - `TEST_GENERATE_PATCH.md` - Step-by-step testing guide
 - `test-project/DIFF_TESTING.md` - Diff generation guide
@@ -404,6 +435,7 @@ These phases will build on the solid foundation we've created:
 ## Ready for User Testing
 
 The `/generate-patch` endpoint is now ready for:
+
 1. Manual API testing via curl
 2. Python script integration testing
 3. VS Code extension testing
@@ -412,6 +444,7 @@ The `/generate-patch` endpoint is now ready for:
 ---
 
 **Phase 5 Status**: 85% Complete ✅
+
 - Core functionality: 100% Complete
 - Testing infrastructure: 100% Complete
 - Frontend UI: Pending (Sub-phases 5.7-5.10)

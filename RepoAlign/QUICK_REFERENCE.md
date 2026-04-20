@@ -3,23 +3,24 @@
 ## What's New
 
 ✅ New `/generate-patch` endpoint that combines:
+
 - Code generation (using existing 5.1-5.4 pipeline)
 - Diff generation (new feature)
 - Statistics (lines added/removed, similarity ratio)
 
 ## Files Created Today
 
-| File | Purpose |
-|------|---------|
-| `backend/app/services/diff_generator.py` | Diff generation service (5.5) |
+| File                                      | Purpose                                |
+| ----------------------------------------- | -------------------------------------- |
+| `backend/app/services/diff_generator.py`  | Diff generation service (5.5)          |
 | `backend/app/api/endpoints/embeddings.py` | Added `/generate-patch` endpoint (5.6) |
-| `backend/app/models/search.py` | Added request/response models |
-| `GENERATE_PATCH.md` | Complete API documentation |
-| `TEST_GENERATE_PATCH.md` | Step-by-step testing guide |
-| `test_patch_payload.json` | Ready-to-use test payload |
-| `PHASE5_SUMMARY.md` | Full architecture overview |
-| `backend/scripts/demo_diff_generation.py` | DiffGenerator examples |
-| `test-project/DIFF_TESTING.md` | Diff theory & concepts |
+| `backend/app/models/search.py`            | Added request/response models          |
+| `GENERATE_PATCH.md`                       | Complete API documentation             |
+| `TEST_GENERATE_PATCH.md`                  | Step-by-step testing guide             |
+| `test_patch_payload.json`                 | Ready-to-use test payload              |
+| `PHASE5_SUMMARY.md`                       | Full architecture overview             |
+| `backend/scripts/demo_diff_generation.py` | DiffGenerator examples                 |
+| `test-project/DIFF_TESTING.md`            | Diff theory & concepts                 |
 
 ## One-Line Quick Test
 
@@ -58,19 +59,20 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 
 ## DiffGenerator Methods Available
 
-| Method | Purpose |
-|--------|---------|
-| `generate_unified_diff()` | Standard `.diff` format (git-compatible) |
-| `generate_context_diff()` | Shows lines before/after changes |
-| `get_diff_stats()` | Returns additions, removals, similarity |
+| Method                         | Purpose                                    |
+| ------------------------------ | ------------------------------------------ |
+| `generate_unified_diff()`      | Standard `.diff` format (git-compatible)   |
+| `generate_context_diff()`      | Shows lines before/after changes           |
+| `get_diff_stats()`             | Returns additions, removals, similarity    |
 | `generate_side_by_side_diff()` | Human-readable format - left/right columns |
-| `is_significant_diff()` | Check if changes above threshold |
-| `save_patch_file()` | Write diff to `.patch` file |
-| `load_patch_file()` | Read diff from `.patch` file |
+| `is_significant_diff()`        | Check if changes above threshold           |
+| `save_patch_file()`            | Write diff to `.patch` file                |
+| `load_patch_file()`            | Read diff from `.patch` file               |
 
 ## Testing the Different Parts
 
 ### Test Code Generation Alone (existing)
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-code \
   -H "Content-Type: application/json" \
@@ -78,6 +80,7 @@ curl -X POST http://localhost:8000/api/v1/generate-code \
 ```
 
 ### Test Code + Patch Together (NEW)
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -85,6 +88,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 ### Extract Just the Diff
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -93,6 +97,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 ### Extract Just Statistics
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -110,15 +115,16 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 
 ## Response Status Codes
 
-| Code | Meaning |
-|------|---------|
-| 200 | Success - patch generated |
-| 422 | Invalid request format |
-| 500 | Backend error (check logs) |
+| Code | Meaning                    |
+| ---- | -------------------------- |
+| 200  | Success - patch generated  |
+| 422  | Invalid request format     |
+| 500  | Backend error (check logs) |
 
 ## Example API Calls
 
 ### Example 1: Enhance Validation
+
 ```json
 {
   "query": "Add domain extraction to validate_email",
@@ -129,6 +135,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 ### Example 2: Add Error Handling
+
 ```json
 {
   "query": "Add try-except error handling to process_user",
@@ -139,6 +146,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 ### Example 3: Improve Documentation
+
 ```json
 {
   "query": "Add comprehensive docstrings and type hints",
@@ -151,6 +159,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ## Integration Points
 
 This endpoint can be used in:
+
 1. **VS Code Extension** - Generate patches from editor
 2. **Python Scripts** - Automated code improvement
 3. **CI/CD Pipelines** - Suggest improvements on PRs

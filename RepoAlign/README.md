@@ -112,6 +112,7 @@ curl -X 'POST' \
 ```
 
 This endpoint generates code and compares it with the original to create a diff/patch. Response includes:
+
 - `unified_diff`: Standard diff format (git-compatible)
 - `stats`: Diff statistics (lines added/removed, similarity ratio)
 - `generated_code`: The LLM-generated code

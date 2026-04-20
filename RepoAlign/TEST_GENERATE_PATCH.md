@@ -104,6 +104,7 @@ print(json.dumps(result, indent=2))
 Extract specific parts of the response:
 
 **View the generated diff:**
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -112,6 +113,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 **View the statistics:**
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -120,6 +122,7 @@ curl -X POST http://localhost:8000/api/v1/generate-patch \
 ```
 
 **View the generated code:**
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/generate-patch \
   -H "Content-Type: application/json" \
@@ -215,6 +218,7 @@ The `unified_diff` field contains standard diff format:
 **Cause**: Invalid JSON request format
 
 **Solution**: Verify JSON syntax
+
 ```bash
 python -m json.tool test_patch_payload.json
 ```
@@ -224,11 +228,13 @@ python -m json.tool test_patch_payload.json
 **Cause**: Backend error during processing
 
 **Solution**: Check backend logs
+
 ```bash
 docker-compose logs backend | tail -50
 ```
 
 Common issues:
+
 - Ollama not running: `docker-compose logs ollama`
 - Neo4j connection issue: `docker-compose logs neo4j`
 - Qdrant connection issue: `docker-compose logs qdrant`
@@ -238,6 +244,7 @@ Common issues:
 **Cause**: LLM couldn't generate code
 
 **Solutions**:
+
 1. Increase `limit` parameter (get more context)
 2. Make query more specific
 3. Check if code has been indexed
@@ -247,6 +254,7 @@ Common issues:
 **Cause**: LLM mostly repeated original
 
 **Solutions**:
+
 1. More specific instruction
 2. Different query phrasing
 3. Add context about desired changes

@@ -29,11 +29,12 @@ def validate_email(email: str) -> bool:
 When you call `/api/v1/generate-code` with query "Enhance email validation with domain checking":
 
 The LLM generates:
+
 ```python
 def validate_email_enhanced(email: str) -> Tuple[bool, Optional[str]]:
     """
     Enhanced email validation with domain extraction.
-    
+
     Returns tuple of (is_valid, domain)
     """
     pattern = r'^[a-zA-Z0-9._%+-]+@((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z]{2,})$'
@@ -54,21 +55,21 @@ The diff generator compares original vs generated:
 @@ -1,6 +1,20 @@
  import re
  from typing import List
- 
+
 +from typing import Tuple, Optional
 +
  def format_greeting(name: str) -> str:
      """Formats a greeting message."""
      return f"Hello, {name}!"
- 
+
  def validate_email(email: str) -> bool:
 @@ -10,3 +24,19 @@
      return re.match(pattern, email) is not None
- 
+
 +def validate_email_enhanced(email: str) -> Tuple[bool, Optional[str]]:
 +    """
 +    Enhanced email validation with domain extraction.
-+    
++
 +    Returns tuple of (is_valid, domain)
 +    """
 +    pattern = r'^[a-zA-Z0-9._%+-]+@((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z]{2,})$'
@@ -85,6 +86,7 @@ The diff generator compares original vs generated:
 The `DiffGenerator` service provides:
 
 ### 1. Unified Diff Generation
+
 ```python
 from app.services.diff_generator import DiffGenerator
 
@@ -97,6 +99,7 @@ diff = generator.generate_unified_diff(
 ```
 
 Returns standard `.diff` format compatible with:
+
 - `patch` command
 - Git
 - Diff viewers
@@ -141,12 +144,14 @@ patch = generator.load_patch_file("generated.patch")
 ## Next Steps (Sub-phase 5.6)
 
 Sub-phase 5.6 will create a `/generate-patch` endpoint that:
+
 1. Calls `/generate-code` to get generated code
 2. Reads the original file content
 3. Uses `DiffGenerator` to create the diff
 4. Returns the patch to the user
 
 This completes the backend pipeline:
+
 ```
 User Instruction
     ↓
