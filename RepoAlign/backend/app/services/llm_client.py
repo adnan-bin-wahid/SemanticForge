@@ -20,14 +20,14 @@ class OllamaClient:
     - Model selection and configuration
     """
     
-    def __init__(self, base_url: str, model: str = "tinyllama", timeout: float = 60.0):
+    def __init__(self, base_url: str, model: str = "tinyllama", timeout: float = 300.0):
         """
         Initialize the Ollama client.
         
         Args:
             base_url (str): The base URL of the Ollama service (e.g., "http://ollama:11434")
             model (str): The LLM model to use (default: "tinyllama")
-            timeout (float): Request timeout in seconds (default: 60.0)
+            timeout (float): Request timeout in seconds (default: 300.0 - 5 minutes)
         """
         self.base_url = base_url.rstrip('/')
         self.model = model

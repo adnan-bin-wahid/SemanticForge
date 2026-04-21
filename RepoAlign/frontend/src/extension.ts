@@ -122,10 +122,15 @@ export function activate(context: vscode.ExtensionContext) {
       return this.contentStore.get(uri.toString()) || "";
     }
 
-    update(originalUri: vscode.Uri, generatedUri: vscode.Uri, originalContent: string, generatedContent: string) {
+    update(
+      originalUri: vscode.Uri,
+      generatedUri: vscode.Uri,
+      originalContent: string,
+      generatedContent: string,
+    ) {
       this.contentStore.set(originalUri.toString(), originalContent);
       this.contentStore.set(generatedUri.toString(), generatedContent);
-      
+
       this._onDidChange.fire(originalUri);
       this._onDidChange.fire(generatedUri);
     }
@@ -185,7 +190,7 @@ export function activate(context: vscode.ExtensionContext) {
                 message: "Sending request to backend...",
               });
 
-              // 5. Call the /generate-patch endpoint
+              // 5. Call the /generate-patch endpoint (with extended timeout for LLM processing)
               const response = await axios.post(
                 "http://localhost:8000/api/v1/generate-patch",
                 {
@@ -193,6 +198,9 @@ export function activate(context: vscode.ExtensionContext) {
                   original_content: originalContent,
                   file_path: filePath,
                   limit: 10,
+                },
+                {
+                  timeout: 330000, // 330 seconds (5.5 minutes) to account for 300s backend + overhead
                 },
               );
 
@@ -204,11 +212,20 @@ export function activate(context: vscode.ExtensionContext) {
               const result = response.data;
 
               // 6. Define unique URIs for the diff view
-              const originalUri = vscode.Uri.parse(`repoalign-diff:${filePath}.original`);
-              const generatedUri = vscode.Uri.parse(`repoalign-diff:${filePath}.generated`);
+              const originalUri = vscode.Uri.parse(
+                `repoalign-diff:${filePath}.original`,
+              );
+              const generatedUri = vscode.Uri.parse(
+                `repoalign-diff:${filePath}.generated`,
+              );
 
               // 7. Update the content provider with the new content
-              diffContentProvider.update(originalUri, generatedUri, originalContent, result.generated_code);
+              diffContentProvider.update(
+                originalUri,
+                generatedUri,
+                originalContent,
+                result.generated_code,
+              );
 
               // 8. Show the diff view
               await vscode.commands.executeCommand(
@@ -223,9 +240,72 @@ export function activate(context: vscode.ExtensionContext) {
                 message: "Patch displayed.",
               });
 
-              vscode.window.showInformationMessage(
-                "Patch generated! Review the changes in the diff viewer.",
+              // 9. Show quick pick with Accept/Reject options (similar to merge conflicts)
+              const userAction = await vscode.window.showQuickPick(
+                [
+                  {
+                    label: "$(check) Accept Patch",
+                    description: "Apply the generated code changes to the file",
+                    value: "accept",
+                  },
+                  {
+                    label: "$(x) Reject Patch",
+                    description:
+                      "Discard the generated code and keep the original",
+                    value: "reject",
+                  },
+                ],
+                {
+                  placeHolder:
+                    "Review the diff and choose: Accept or Reject the generated patch",
+                  canPickMany: false,
+                },
               );
+
+              if (userAction?.value === "accept") {
+                try {
+                  // Apply the generated code to the active editor
+                  const edit = new vscode.WorkspaceEdit();
+                  const fullRange = new vscode.Range(
+                    editor.document.positionAt(0),
+                    editor.document.positionAt(originalContent.length),
+                  );
+                  edit.replace(
+                    editor.document.uri,
+                    fullRange,
+                    result.generated_code,
+                  );
+
+                  await vscode.workspace.applyEdit(edit);
+                  
+                  // Close the diff view
+                  await vscode.commands.executeCommand(
+                    "workbench.action.closeActiveEditor",
+                  );
+                  
+                  // Focus back on the original file
+                  await vscode.window.showTextDocument(editor.document);
+                  
+                  vscode.window.showInformationMessage(
+                    "✓ Patch accepted and applied to the file.",
+                  );
+                } catch (applyError) {
+                  vscode.window.showErrorMessage(
+                    "Failed to apply the patch to the file.",
+                  );
+                  console.error("Apply error:", applyError);
+                }
+              } else if (userAction?.value === "reject") {
+                // Close the diff view
+                await vscode.commands.executeCommand(
+                  "workbench.action.closeActiveEditor",
+                );
+                
+                // Focus back on the original file
+                await vscode.window.showTextDocument(editor.document);
+                
+                vscode.window.showInformationMessage("✗ Patch rejected.");
+              }
             } catch (error) {
               vscode.window.showErrorMessage(
                 "Failed to generate code patch. See console for details.",
