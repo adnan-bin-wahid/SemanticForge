@@ -277,15 +277,15 @@ export function activate(context: vscode.ExtensionContext) {
                   );
 
                   await vscode.workspace.applyEdit(edit);
-                  
+
                   // Close the diff view
                   await vscode.commands.executeCommand(
                     "workbench.action.closeActiveEditor",
                   );
-                  
+
                   // Focus back on the original file
                   await vscode.window.showTextDocument(editor.document);
-                  
+
                   vscode.window.showInformationMessage(
                     "✓ Patch accepted and applied to the file.",
                   );
@@ -300,10 +300,10 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand(
                   "workbench.action.closeActiveEditor",
                 );
-                
+
                 // Focus back on the original file
                 await vscode.window.showTextDocument(editor.document);
-                
+
                 vscode.window.showInformationMessage("✗ Patch rejected.");
               }
             } catch (error) {
