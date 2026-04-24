@@ -1,5 +1,9 @@
 import * as vscode from "vscode";
 import axios from "axios";
+import {
+  createValidationPanel,
+  updateValidationPanel,
+} from "./validationPanel";
 
 // Define the structure for file content payload
 interface FileContent {
@@ -11,6 +15,9 @@ export function activate(context: vscode.ExtensionContext) {
   console.log(
     'Congratulations, your extension "repoalign-frontend" is now active!',
   );
+
+  // Validation panel for displaying patch validation results
+  let validationPanel: vscode.WebviewPanel | undefined;
 
   // Command for backend health check
   let healthCheckDisposable = vscode.commands.registerCommand(
@@ -191,6 +198,23 @@ export function activate(context: vscode.ExtensionContext) {
               });
 
               // 5. Call the /generate-patch endpoint (with extended timeout for LLM processing)
+              // Include repo path for validation
+              const workspaceFolderPath =
+                vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+              // Convert Windows path to Docker path for backend
+              // The backend runs in Docker where test-project is mounted at /app/test-project
+              let dockerRepoPath: string | undefined = undefined;
+              if (workspaceFolderPath) {
+                // Check if path contains 'test-project' - if so, use Docker path
+                if (workspaceFolderPath.includes("test-project")) {
+                  dockerRepoPath = "/app/test-project";
+                } else {
+                  // Otherwise use the workspace path as-is
+                  dockerRepoPath = workspaceFolderPath;
+                }
+              }
+
               const response = await axios.post(
                 "http://localhost:8000/api/v1/generate-patch",
                 {
@@ -198,6 +222,12 @@ export function activate(context: vscode.ExtensionContext) {
                   original_content: originalContent,
                   file_path: filePath,
                   limit: 10,
+                  // Optional validation parameters (only if workspace available)
+                  ...(dockerRepoPath && {
+                    repo_path: dockerRepoPath,
+                    file_relative_path: filePath,
+                    run_tests: false, // Disable tests by default for speed
+                  }),
                 },
                 {
                   timeout: 330000, // 330 seconds (5.5 minutes) to account for 300s backend + overhead
@@ -240,6 +270,28 @@ export function activate(context: vscode.ExtensionContext) {
                 message: "Patch displayed.",
               });
 
+              // 8.5 Display validation panel if validation data is available
+              if (result.validation) {
+                // Create or reuse validation panel
+                if (!validationPanel) {
+                  validationPanel = createValidationPanel(context);
+
+                  // Handle panel disposal
+                  validationPanel.onDidDispose(() => {
+                    validationPanel = undefined;
+                  });
+                } else {
+                  validationPanel.reveal(vscode.ViewColumn.Beside);
+                }
+
+                // Update panel with validation data
+                updateValidationPanel(
+                  validationPanel,
+                  result.validation,
+                  filePath,
+                );
+              }
+
               // 9. Show quick pick with Accept/Reject options (similar to merge conflicts)
               const userAction = await vscode.window.showQuickPick(
                 [
@@ -264,7 +316,29 @@ export function activate(context: vscode.ExtensionContext) {
 
               if (userAction?.value === "accept") {
                 try {
-                  // Apply the generated code to the active editor
+                  // 1. Check validation status if available
+                  if (
+                    result.validation &&
+                    result.validation.overall_status === "failed"
+                  ) {
+                    // Validation failed - ask user to confirm override
+                    const confirmOverride =
+                      await vscode.window.showWarningMessage(
+                        `⚠ Validation failed: ${result.validation.total_errors} error(s), ${result.validation.total_warnings} warning(s). Apply patch anyway?`,
+                        { modal: true },
+                        "Yes, Apply",
+                        "No, Cancel",
+                      );
+
+                    if (confirmOverride !== "Yes, Apply") {
+                      vscode.window.showInformationMessage(
+                        "Patch application cancelled due to validation failures.",
+                      );
+                      return;
+                    }
+                  }
+
+                  // 2. Apply the generated code to the active editor
                   const edit = new vscode.WorkspaceEdit();
                   const fullRange = new vscode.Range(
                     editor.document.positionAt(0),
@@ -278,16 +352,24 @@ export function activate(context: vscode.ExtensionContext) {
 
                   await vscode.workspace.applyEdit(edit);
 
-                  // Close the diff view
+                  // 3. Close the diff view
                   await vscode.commands.executeCommand(
                     "workbench.action.closeActiveEditor",
                   );
 
-                  // Focus back on the original file
+                  // 4. Focus back on the original file
                   await vscode.window.showTextDocument(editor.document);
 
+                  // 5. Show success message with validation status
+                  const validationMsg =
+                    result.validation &&
+                    result.validation.overall_status === "passed"
+                      ? " (Validation passed)"
+                      : result.validation
+                        ? " (Validation had issues, but you confirmed)"
+                        : "";
                   vscode.window.showInformationMessage(
-                    "✓ Patch accepted and applied to the file.",
+                    `✓ Patch accepted and applied to the file.${validationMsg}`,
                   );
                 } catch (applyError) {
                   vscode.window.showErrorMessage(

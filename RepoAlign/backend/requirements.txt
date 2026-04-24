@@ -7,3 +7,5 @@ sentence-transformers
 rank_bm25
 numpy
 nltk
+ruff
+mypy

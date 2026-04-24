@@ -85,6 +85,13 @@ class GeneratePatchRequest(BaseModel):
     original_content: str  # Original file content to compare against
     file_path: str = "generated.py"  # For use in diff header
     limit: int = 10  # Number of context results to use
+    # Optional validation parameters
+    repo_path: str | None = None  # Path to repository (if provided, validation runs)
+    file_relative_path: str | None = None  # Relative path in repo (if not provided, uses file_path)
+    run_tests: bool = False  # Whether to run tests (default False for speed)
+    test_directory: str = "tests"  # Path to tests relative to repo
+    strict: bool = False  # Use strict type checking in validation
+    test_timeout: int = 60  # Test execution timeout in seconds
 
 
 class DiffStats(BaseModel):
@@ -97,6 +104,18 @@ class DiffStats(BaseModel):
     identical: bool
 
 
+class ValidationReport(BaseModel):
+    """Validation report for a patch."""
+    overall_status: str  # "passed" or "failed"
+    overall_summary: str
+    constraint_check: dict | None = None
+    test_results: dict | None = None
+    total_issues: int
+    total_errors: int
+    total_warnings: int
+    validation_stages: dict | None = None
+
+
 class GeneratePatchResponse(BaseModel):
     """Response model for patch generation."""
     query: str
@@ -104,3 +123,4 @@ class GeneratePatchResponse(BaseModel):
     stats: DiffStats
     generated_code: str  # The generated code
     file_path: str
+    validation: ValidationReport | None = None  # Validation report (if validation ran)
