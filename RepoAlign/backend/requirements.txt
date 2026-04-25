@@ -9,3 +9,5 @@ numpy
 nltk
 ruff
 mypy
+coverage
+pytest

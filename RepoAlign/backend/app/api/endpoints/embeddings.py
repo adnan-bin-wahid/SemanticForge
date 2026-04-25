@@ -14,6 +14,8 @@ from app.services.code_generation import CodeGenerator
 from app.services.diff_generator import DiffGenerator
 from app.services.constraint_checker_integration import validate_patch_completely, validate_patch_completely_from_content, generate_validation_report
 from app.services.test_runner_integration import run_tests_on_patch, generate_test_report
+from app.services.test_mapper_integration import get_test_to_code_mapping
+from app.services.coverage_analyzer_integration import get_coverage_analysis
 from fastapi import Request
 from pathlib import Path
 import os
@@ -332,3 +334,104 @@ async def generate_patch(fastapi_req: Request, request: GeneratePatchRequest):
         file_path=request.file_path,
         validation=validation_report
     )
+
+
+@router.post("/analyze-test-mapping")
+async def analyze_test_mapping(repo_path: str = "/app/test-project"):
+    """
+    Analyze test-to-code mapping (Phase 7.1).
+    
+    Determines which test files cover which source code files by analyzing imports
+    and file structure.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Mapping report containing:
+        - statistics: Coverage statistics
+        - test_to_source_mapping: Which tests cover which source files
+        - source_to_test_mapping: Which tests cover each source file
+        - uncovered_sources: Source files not covered by any tests
+        - details: Lists of all test and source files discovered
+    """
+    logger.info(f"========== PHASE 7.1 START: Test-to-Code Mapping Analysis ==========")
+    logger.info(f"[PHASE 7.1] Repository path: {repo_path}")
+    
+    try:
+        # Analyze repository
+        logger.info(f"[PHASE 7.1] Starting test-to-code mapping analysis...")
+        report = get_test_to_code_mapping(repo_path)
+        
+        logger.info(f"[PHASE 7.1] ✓ Analysis complete")
+        logger.info(f"[PHASE 7.1] Statistics:")
+        stats = report.get("statistics", {})
+        logger.info(f"  - Total test files: {stats.get('total_test_files', 0)}")
+        logger.info(f"  - Total source files: {stats.get('total_source_files', 0)}")
+        logger.info(f"  - Covered source files: {stats.get('covered_source_files', 0)}")
+        logger.info(f"  - Coverage: {stats.get('coverage_percentage', 0):.1f}%")
+        
+        logger.info(f"========== PHASE 7.1 END: Mapping Complete ==========")
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.1] Error during test-to-code mapping: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.1",
+            "status": "failed"
+        }
+
+
+@router.post("/analyze-coverage")
+async def analyze_coverage(repo_path: str = "/app/test-project"):
+    """
+    Analyze test coverage using pytest and coverage.py (Phase 7.2).
+    
+    Runs the test suite with coverage.py to collect line-by-line execution data,
+    showing which lines of code are covered by tests.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Coverage report containing:
+        - test_summary: Test execution results (passed, failed, errors)
+        - statistics: Overall coverage metrics
+        - coverage_by_file: Per-file coverage details with executed/missing lines
+    """
+    logger.info(f"========== PHASE 7.2 START: Coverage Analysis ==========")
+    logger.info(f"[PHASE 7.2] Repository path: {repo_path}")
+    
+    try:
+        # Run coverage analysis
+        logger.info(f"[PHASE 7.2] Running pytest with coverage.py...")
+        report = get_coverage_analysis(repo_path)
+        
+        # Log statistics
+        stats = report.get("statistics", {})
+        test_summary = report.get("test_summary", {})
+        
+        logger.info(f"[PHASE 7.2] ✓ Analysis complete")
+        logger.info(f"[PHASE 7.2] Test Results:")
+        logger.info(f"  - Passed: {test_summary.get('passed', 0)}/{test_summary.get('total', 0)}")
+        logger.info(f"  - Failed: {test_summary.get('failed', 0)}")
+        logger.info(f"  - Errors: {test_summary.get('errors', 0)}")
+        
+        logger.info(f"[PHASE 7.2] Coverage Statistics:")
+        logger.info(f"  - Files analyzed: {stats.get('total_files', 0)}")
+        logger.info(f"  - Lines covered: {stats.get('covered_lines', 0)}/{stats.get('total_lines', 0)}")
+        logger.info(f"  - Overall coverage: {stats.get('overall_coverage', 0):.1f}%")
+        
+        logger.info(f"========== PHASE 7.2 END: Coverage Analysis Complete ==========")
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.2] Error during coverage analysis: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.2",
+            "status": "failed"
+        }
