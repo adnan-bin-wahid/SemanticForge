@@ -16,6 +16,12 @@ from app.services.constraint_checker_integration import validate_patch_completel
 from app.services.test_runner_integration import run_tests_on_patch, generate_test_report
 from app.services.test_mapper_integration import get_test_to_code_mapping
 from app.services.coverage_analyzer_integration import get_coverage_analysis
+from app.services.coverage_graph_enricher_integration import get_coverage_graph_enrichment
+from app.services.test_node_creator import create_test_nodes
+from app.services.dynamic_profiler_integration import get_dynamic_profiling
+from app.services.call_trace_processor_integration import get_processed_trace
+from app.services.dynamic_call_graph_enricher_integration import enrich_dynamic_call_graph
+from app.services.runtime_type_collector_integration import collect_runtime_types
 from fastapi import Request
 from pathlib import Path
 import os
@@ -433,5 +439,256 @@ async def analyze_coverage(repo_path: str = "/app/test-project"):
         return {
             "error": str(e),
             "phase": "7.2",
+            "status": "failed"
+        }
+
+
+@router.post("/create-test-nodes")
+async def create_test_nodes_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Create Test nodes in Neo4j from discovered test files (Phase 7.3 prep).
+    
+    Discovers all test files in the repository and creates Test nodes
+    in the Neo4j graph for linking with functions via COVERED_BY edges.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Report containing number of Test nodes created
+    """
+    logger.info(f"[PHASE 7.3] Creating Test nodes from discovered test files")
+    logger.info(f"[PHASE 7.3] Repository path: {repo_path}")
+    
+    try:
+        count = create_test_nodes(repo_path)
+        
+        logger.info(f"[PHASE 7.3] ✓ Test node creation complete")
+        logger.info(f"[PHASE 7.3] Created {count} Test nodes")
+        
+        return {
+            "phase": "7.3",
+            "title": "Test Node Creation",
+            "status": "success",
+            "nodes_created": count
+        }
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.3] Error creating test nodes: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.3",
+            "status": "failed"
+        }
+
+
+@router.post("/enrich-coverage-graph")
+async def enrich_coverage_graph(repo_path: str = "/app/test-project"):
+    """
+    Enrich the knowledge graph with COVERED_BY edges (Phase 7.3).
+    
+    Processes the coverage report and creates edges between Function nodes
+    and Test nodes, linking functions to the tests that execute them.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Enrichment report containing:
+        - functions_processed: Number of functions analyzed
+        - edges_created: Number of COVERED_BY edges created
+        - coverage_data: Coverage statistics
+    """
+    logger.info(f"========== PHASE 7.3 START: Coverage Graph Enrichment ==========")
+    logger.info(f"[PHASE 7.3] Repository path: {repo_path}")
+    
+    try:
+        # Enrich the coverage graph
+        logger.info(f"[PHASE 7.3] Processing coverage data and creating graph edges...")
+        result = get_coverage_graph_enrichment(repo_path)
+        
+        # Log enrichment results
+        logger.info(f"[PHASE 7.3] ✓ Graph enrichment complete")
+        logger.info(f"[PHASE 7.3] Enrichment Statistics:")
+        logger.info(f"  - Functions processed: {result.get('functions_processed', 0)}")
+        logger.info(f"  - COVERED_BY edges created: {result.get('edges_created', 0)}")
+        
+        logger.info(f"========== PHASE 7.3 END: Coverage Graph Enrichment Complete ==========")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.3] Error during graph enrichment: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.3",
+            "status": "failed"
+        }
+
+
+@router.post("/run-dynamic-profiling")
+async def run_dynamic_profiling(repo_path: str = "/app/test-project"):
+    """
+    Run dynamic profiling on test execution (Phase 7.4).
+    
+    Captures function call events during test execution using sys.setprofile.
+    Produces a raw log of the dynamic call stack.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Report containing call traces and call graph
+    """
+    logger.info(f"[PHASE 7.4] Starting dynamic profiling for {repo_path}")
+    
+    try:
+        result = get_dynamic_profiling(repo_path)
+        
+        logger.info(f"[PHASE 7.4] ✓ Dynamic profiling complete")
+        logger.info(f"[PHASE 7.4] Captured {result['summary']['total_events']} events")
+        logger.info(f"[PHASE 7.4] Unique function pairs: {result['summary']['unique_call_pairs']}")
+        logger.info(f"[PHASE 7.4] Max call depth: {result['summary']['max_call_depth']}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.4] Error during dynamic profiling: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.4",
+            "status": "failed"
+        }
+
+
+@router.post("/process-call-trace")
+async def process_call_trace(repo_path: str = "/app/test-project"):
+    """
+    Process dynamic call traces into structured function call lists (Phase 7.5).
+    
+    Runs dynamic profiling (Phase 7.4) and processes the raw trace data into:
+    - Unique function-to-function call pairs
+    - Call frequency statistics
+    - Dynamic call graph
+    - Functions most called and most called by
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Processed trace with call pairs, call graph, and statistics
+    """
+    logger.info(f"[PHASE 7.5] Processing call traces for {repo_path}")
+    
+    try:
+        result = get_processed_trace(repo_path)
+        
+        logger.info(f"[PHASE 7.5] ✓ Trace processing complete")
+        logger.info(f"[PHASE 7.5] Unique call pairs: {result['summary']['total_unique_pairs']}")
+        logger.info(f"[PHASE 7.5] Unique functions: {result['summary']['total_unique_functions']}")
+        logger.info(f"[PHASE 7.5] Total invocations: {result['summary']['total_call_invocations']}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.5] Error during trace processing: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.5",
+            "status": "failed"
+        }
+
+
+@router.post("/enrich-dynamic-call-graph")
+async def enrich_dynamic_call_graph_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Create DYNAMICALLY_CALLS edges in Neo4j based on processed trace data (Phase 7.6).
+    
+    Orchestrates the full dynamic analysis pipeline:
+    1. Phase 7.4: Dynamic profiling with sys.setprofile
+    2. Phase 7.5: Process trace data into call pairs
+    3. Phase 7.6: Create DYNAMICALLY_CALLS edges in Neo4j
+    
+    The result enriches the knowledge graph with actual runtime function call relationships.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Summary of edges created, statistics, and enrichment details
+    """
+    logger.info(f"[PHASE 7.6] Enriching dynamic call graph for {repo_path}")
+    
+    try:
+        result = enrich_dynamic_call_graph(repo_path)
+        
+        if result.get("status") == "success":
+            summary = result.get("summary", {})
+            logger.info(f"[PHASE 7.6] ✓ Enrichment complete")
+            logger.info(f"[PHASE 7.6] Edges created: {summary.get('edges_created', 0)}")
+            logger.info(f"[PHASE 7.6] Edges updated: {summary.get('edges_updated', 0)}")
+            logger.info(f"[PHASE 7.6] Failed edges: {summary.get('failed_edges', 0)}")
+            logger.info(f"[PHASE 7.6] Missing nodes: {summary.get('missing_nodes', 0)}")
+            
+            stats = result.get("statistics", {})
+            logger.info(f"[PHASE 7.6] Total DYNAMICALLY_CALLS edges in graph: {stats.get('total_dynamically_calls_edges', 0)}")
+            logger.info(f"[PHASE 7.6] Total call invocations: {stats.get('total_call_count', 0)}")
+        else:
+            logger.error(f"[PHASE 7.6] Enrichment failed: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.6] Error during graph enrichment: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.6",
+            "status": "failed"
+        }
+
+
+@router.post("/collect-runtime-types")
+async def collect_runtime_types_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Collect and analyze runtime type information (Phase 7.7).
+    
+    Runs the full dynamic analysis pipeline with enhanced type collection:
+    1. Phase 7.4: Dynamic profiling with argument type capture
+    2. Phase 7.7: Type analysis and aggregation
+    
+    The result includes observed types for each function's arguments,
+    type signatures, and polymorphism analysis.
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Summary of collected types, function signatures, and statistics
+    """
+    logger.info(f"[PHASE 7.7] Collecting runtime types for {repo_path}")
+    
+    try:
+        result = collect_runtime_types(repo_path)
+        
+        if result.get("status") == "success":
+            summary = result.get("summary", {})
+            logger.info(f"[PHASE 7.7] ✓ Type collection complete")
+            logger.info(f"[PHASE 7.7] Functions with types: {summary.get('functions_with_types', 0)}")
+            logger.info(f"[PHASE 7.7] Total call events: {summary.get('total_call_events_processed', 0)}")
+            logger.info(f"[PHASE 7.7] Unique types observed: {summary.get('unique_types_observed', 0)}")
+            
+            stats = result.get("type_statistics", {})
+            logger.info(f"[PHASE 7.7] Functions with polymorphic types: {stats.get('functions_with_polymorphic_types', 0)}")
+            logger.info(f"[PHASE 7.7] Functions with consistent types: {stats.get('functions_with_consistent_types', 0)}")
+        else:
+            logger.error(f"[PHASE 7.7] Type collection failed: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.7] Error during type collection: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.7",
             "status": "failed"
         }
