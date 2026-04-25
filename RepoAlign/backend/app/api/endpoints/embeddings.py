@@ -24,6 +24,10 @@ from app.services.dynamic_call_graph_enricher_integration import enrich_dynamic_
 from app.services.runtime_type_collector_integration import collect_runtime_types
 from app.services.runtime_type_graph_enricher_integration import enrich_function_types
 from app.services.dynamic_analysis_service_integration import run_dynamic_analysis
+from app.services.file_watcher_integration import (
+    start_file_watcher, stop_file_watcher, get_watcher_status, 
+    get_pending_changes, consume_changes, clear_changes
+)
 from fastapi import Request
 from pathlib import Path
 import os
@@ -816,4 +820,238 @@ async def run_dynamic_analysis_endpoint(repo_path: str = "/app/test-project"):
             "status": "failed"
         }
 
+
+@router.post("/start-file-watcher")
+async def start_file_watcher_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Start the background file system watcher (Phase 8.1).
+    
+    Initializes a watchdog observer to monitor the repository directory for
+    file system events (create, delete, modify). The watcher runs in the background
+    and queues detected changes for processing by subsequent phases.
+    
+    Only monitors Python files (.py, .pyi) and ignores common directories
+    like __pycache__, .git, .venv, node_modules, etc.
+    
+    Args:
+        repo_path: Path to the repository to monitor (default: /app/test-project for Docker)
+    
+    Returns:
+        Status dictionary containing:
+        - status: "started", "already_running", or "failed"
+        - message: Human-readable status message
+        - repo_path: Repository path being monitored
+        - start_time: ISO format timestamp when watcher started
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"========== PHASE 8.1 START: File Watcher ==========")
+    logger.info(f"[PHASE 8.1] Starting file system watcher for {repo_path}")
+    
+    try:
+        result = start_file_watcher(repo_path)
+        
+        if result.get("status") == "started":
+            logger.info(f"[PHASE 8.1] ✓ File watcher started successfully")
+            logger.info(f"[PHASE 8.1] Repository path: {repo_path}")
+            logger.info(f"[PHASE 8.1] Start time: {result.get('start_time')}")
+        elif result.get("status") == "already_running":
+            logger.info(f"[PHASE 8.1] File watcher already running since {result.get('start_time')}")
+        else:
+            logger.error(f"[PHASE 8.1] Failed to start file watcher: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error starting file watcher: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "phase": "8.1"
+        }
+
+
+@router.post("/stop-file-watcher")
+async def stop_file_watcher_endpoint():
+    """
+    Stop the background file system watcher (Phase 8.1).
+    
+    Gracefully shuts down the watchdog observer and returns statistics about
+    detected changes before stopping.
+    
+    Returns:
+        Status dictionary containing:
+        - status: "stopped", "not_running", or "failed"
+        - message: Human-readable status message
+        - events_detected: Total file system events detected since start
+        - events_by_type: Breakdown by event type (created, deleted, modified)
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"[PHASE 8.1] Stopping file system watcher")
+    
+    try:
+        result = stop_file_watcher()
+        
+        if result.get("status") == "stopped":
+            logger.info(f"[PHASE 8.1] ✓ File watcher stopped successfully")
+            logger.info(f"[PHASE 8.1] Events detected: {result.get('events_detected', 0)}")
+            events_by_type = result.get('events_by_type', {})
+            logger.info(f"[PHASE 8.1] Created: {events_by_type.get('created', 0)}, "
+                       f"Deleted: {events_by_type.get('deleted', 0)}, "
+                       f"Modified: {events_by_type.get('modified', 0)}")
+        elif result.get("status") == "not_running":
+            logger.info(f"[PHASE 8.1] File watcher is not running")
+        else:
+            logger.error(f"[PHASE 8.1] Failed to stop file watcher: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.1 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error stopping file watcher: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "phase": "8.1"
+        }
+
+
+@router.get("/watcher-status")
+async def get_watcher_status_endpoint():
+    """
+    Get the current status of the file system watcher (Phase 8.1).
+    
+    Returns detailed status information about the running watcher,
+    including uptime, event counts, and queue status.
+    
+    Returns:
+        Status dictionary containing:
+        - is_running: Boolean indicating if watcher is active
+        - repo_path: Repository path being monitored
+        - start_time: ISO format timestamp when watcher started
+        - uptime_seconds: How long the watcher has been running
+        - events_detected: Total file system events detected
+        - events_by_type: Breakdown by event type (created, deleted, modified)
+        - queue_size: Number of unprocessed changes in queue
+    """
+    try:
+        result = get_watcher_status()
+        
+        if result.get("is_running"):
+            logger.debug(f"[PHASE 8.1] Watcher status: running, queue size: {result.get('queue_size', 0)}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error getting watcher status: {str(e)}", exc_info=True)
+        return {
+            "is_running": False,
+            "error": str(e)
+        }
+
+
+@router.get("/pending-changes")
+async def get_pending_changes_endpoint(max_changes: int = 100):
+    """
+    Get pending file system changes without consuming them (Phase 8.1).
+    
+    Retrieves up to max_changes detected file changes from the queue
+    without removing them. Use this to preview changes before consuming.
+    
+    Args:
+        max_changes: Maximum number of changes to retrieve (default: 100)
+    
+    Returns:
+        Dictionary containing:
+        - status: "success", "watcher_not_running", or "failed"
+        - pending_changes: Number of changes in the queue
+        - changes: List of change events with structure:
+            - event_type: "created", "deleted", or "modified"
+            - file_path: Absolute path to the changed file
+            - timestamp: ISO format timestamp of the event
+    """
+    try:
+        result = get_pending_changes(max_changes)
+        
+        changes = result.get("changes", [])
+        if changes:
+            logger.debug(f"[PHASE 8.1] Retrieved {len(changes)} pending changes")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error getting pending changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.post("/consume-changes")
+async def consume_changes_endpoint(max_changes: int = 100):
+    """
+    Consume (remove from queue) pending file system changes (Phase 8.1).
+    
+    Retrieves up to max_changes detected file changes from the queue
+    and removes them from the queue. These changes are then passed to
+    subsequent phases (8.2 Git Diff, 8.3 Queue, etc.) for processing.
+    
+    Args:
+        max_changes: Maximum number of changes to consume (default: 100)
+    
+    Returns:
+        Dictionary containing:
+        - status: "success", "watcher_not_running", or "failed"
+        - consumed_changes: Number of changes consumed
+        - changes: List of consumed change events with structure:
+            - event_type: "created", "deleted", or "modified"
+            - file_path: Absolute path to the changed file
+            - timestamp: ISO format timestamp of the event
+    """
+    try:
+        result = consume_changes(max_changes)
+        
+        consumed = result.get("consumed_changes", 0)
+        if consumed > 0:
+            logger.info(f"[PHASE 8.1] Consumed {consumed} changes from queue")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error consuming changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.post("/clear-changes")
+async def clear_changes_endpoint():
+    """
+    Clear all pending file system changes from the queue (Phase 8.1).
+    
+    Removes all detected file changes from the queue without processing them.
+    Use this to reset the watcher state or skip accumulated changes.
+    
+    Returns:
+        Dictionary containing:
+        - status: "success", "watcher_not_running", or "failed"
+        - changes_cleared: Number of changes that were removed from the queue
+    """
+    try:
+        result = clear_changes()
+        
+        cleared = result.get("changes_cleared", 0)
+        if cleared > 0:
+            logger.info(f"[PHASE 8.1] Cleared {cleared} changes from queue")
+        else:
+            logger.debug(f"[PHASE 8.1] No changes to clear")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.1] Error clearing changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
 
