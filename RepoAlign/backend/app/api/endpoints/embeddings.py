@@ -23,6 +23,7 @@ from app.services.call_trace_processor_integration import get_processed_trace
 from app.services.dynamic_call_graph_enricher_integration import enrich_dynamic_call_graph
 from app.services.runtime_type_collector_integration import collect_runtime_types
 from app.services.runtime_type_graph_enricher_integration import enrich_function_types
+from app.services.dynamic_analysis_service_integration import run_dynamic_analysis
 from fastapi import Request
 from pathlib import Path
 import os
@@ -744,4 +745,75 @@ async def enrich_function_types_endpoint(repo_path: str = "/app/test-project"):
             "phase": "7.8",
             "status": "failed"
         }
+
+
+@router.post("/run-dynamic-analysis")
+async def run_dynamic_analysis_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Run the complete dynamic analysis pipeline (Phase 7.9).
+    
+    Orchestrates all dynamic analysis phases to enrich the knowledge graph:
+    1. Phase 7.4: Dynamic profiling with argument type capture via sys.setprofile
+    2. Phase 7.5: Process raw trace data into structured call pairs
+    3. Phase 7.6: Create DYNAMICALLY_CALLS edges in Neo4j graph
+    4. Phase 7.7: Collect and analyze runtime type information
+    5. Phase 7.8: Add type properties to Function nodes in Neo4j
+    
+    This single endpoint provides end-to-end dynamic analysis enrichment.
+    
+    The result includes:
+    - Dynamic call relationships with invocation counts
+    - Runtime type signatures for each function
+    - Polymorphism analysis (functions with multiple signatures)
+    - Complete type coverage statistics
+    - Neo4j graph enrichment summary
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Comprehensive summary of all pipeline phases with execution times,
+        statistics, and detailed results from each phase
+    """
+    logger.info(f"[PHASE 7.9] Running complete dynamic analysis pipeline for {repo_path}")
+    
+    try:
+        result = run_dynamic_analysis(repo_path)
+        
+        if result.get("status") == "success":
+            summary = result.get("execution_summary", {})
+            logger.info(f"[PHASE 7.9] ✓ Dynamic analysis pipeline completed successfully")
+            
+            # Log execution times
+            for phase_name, phase_info in summary.items():
+                exec_time = phase_info.get("execution_time_seconds", 0)
+                status = phase_info.get("status", "unknown")
+                logger.info(f"[PHASE 7.9] {phase_name}: {status} ({exec_time}s)")
+            
+            # Log pipeline metrics
+            metrics = result.get("pipeline_metrics", {})
+            logger.info(f"[PHASE 7.9] Total execution time: {result.get('total_execution_time_seconds', 0)}s")
+            logger.info(f"[PHASE 7.9] Successful phases: {metrics.get('successful_phases', 0)}/{metrics.get('total_phases', 5)}")
+            logger.info(f"[PHASE 7.9] Total call events captured: {metrics.get('total_call_events_captured', 0)}")
+            logger.info(f"[PHASE 7.9] Unique call pairs: {metrics.get('unique_call_pairs', 0)}")
+            logger.info(f"[PHASE 7.9] DYNAMICALLY_CALLS edges: {metrics.get('dynamically_calls_edges_created', 0)}")
+            logger.info(f"[PHASE 7.9] Functions with runtime types: {metrics.get('functions_with_runtime_types', 0)}")
+            logger.info(f"[PHASE 7.9] Unique types observed: {metrics.get('unique_types_observed', 0)}")
+            logger.info(f"[PHASE 7.9] Function nodes updated: {metrics.get('function_nodes_updated_with_types', 0)}")
+            logger.info(f"[PHASE 7.9] Polymorphic functions: {metrics.get('polymorphic_functions_identified', 0)}")
+        else:
+            failed_phase = result.get("failed_at_phase", "unknown")
+            logger.error(f"[PHASE 7.9] Pipeline failed at Phase {failed_phase}")
+            logger.error(f"[PHASE 7.9] Error: {result.get('failure_details', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.9] Error running dynamic analysis pipeline: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.9",
+            "status": "failed"
+        }
+
 
