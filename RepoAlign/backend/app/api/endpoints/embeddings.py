@@ -22,6 +22,7 @@ from app.services.dynamic_profiler_integration import get_dynamic_profiling
 from app.services.call_trace_processor_integration import get_processed_trace
 from app.services.dynamic_call_graph_enricher_integration import enrich_dynamic_call_graph
 from app.services.runtime_type_collector_integration import collect_runtime_types
+from app.services.runtime_type_graph_enricher_integration import enrich_function_types
 from fastapi import Request
 from pathlib import Path
 import os
@@ -692,3 +693,55 @@ async def collect_runtime_types_endpoint(repo_path: str = "/app/test-project"):
             "phase": "7.7",
             "status": "failed"
         }
+
+
+@router.post("/enrich-function-types")
+async def enrich_function_types_endpoint(repo_path: str = "/app/test-project"):
+    """
+    Enrich Function nodes in Neo4j with runtime type properties (Phase 7.8).
+    
+    Runs the full dynamic analysis pipeline with type enrichment:
+    1. Phase 7.4: Dynamic profiling with argument type capture
+    2. Phase 7.7: Runtime type collection and analysis
+    3. Phase 7.8: Add type properties to Function nodes in Neo4j
+    
+    The result enriches the Function nodes with properties:
+    - observed_types: List of types observed for function arguments
+    - type_signatures: List of observed type signatures
+    - is_polymorphic: Boolean indicating if function has multiple signatures
+    - signature_variants: Count of distinct type signatures observed
+    
+    Args:
+        repo_path: Path to the repository (default: /app/test-project for Docker)
+    
+    Returns:
+        Summary of functions updated, type properties added, and polymorphism analysis
+    """
+    logger.info(f"[PHASE 7.8] Enriching function types in Neo4j for {repo_path}")
+    
+    try:
+        result = enrich_function_types(repo_path)
+        
+        if result.get("status") == "success":
+            summary = result.get("summary", {})
+            logger.info(f"[PHASE 7.8] ✓ Type enrichment complete")
+            logger.info(f"[PHASE 7.8] Functions updated: {summary.get('functions_updated', 0)}")
+            logger.info(f"[PHASE 7.8] Properties added: {summary.get('properties_added', 0)}")
+            logger.info(f"[PHASE 7.8] Polymorphic functions identified: {summary.get('polymorphic_functions_identified', 0)}")
+            
+            enriched_stats = result.get("enriched_functions_statistics", {})
+            logger.info(f"[PHASE 7.8] Functions in graph with types: {enriched_stats.get('functions_with_types', 0)}")
+            logger.info(f"[PHASE 7.8] Polymorphic functions in graph: {enriched_stats.get('functions_with_polymorphic_types', 0)}")
+        else:
+            logger.error(f"[PHASE 7.8] Enrichment failed: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 7.8] Error during function type enrichment: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "phase": "7.8",
+            "status": "failed"
+        }
+
