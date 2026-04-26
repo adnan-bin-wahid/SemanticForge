@@ -32,6 +32,14 @@ from app.services.git_diff_integration import (
     start_git_diff_poller, stop_git_diff_poller, get_git_poller_status,
     get_pending_git_changes, consume_git_changes, clear_git_changes
 )
+from app.services.change_queue_integration import (
+    enqueue_file_change, get_pending_changes, consume_queue_changes,
+    mark_change_processed, get_queue_status, clear_all_changes
+)
+from app.services.ast_diff_integration import (
+    diff_file_against_version, get_symbol_changes, get_file_symbols,
+    get_change_impact_summary
+)
 from fastapi import Request
 from pathlib import Path
 import os
@@ -1306,5 +1314,429 @@ async def clear_git_changes_endpoint():
             "status": "failed",
             "error": str(e),
             "changes_cleared": 0
+        }
+
+
+# ======================== PHASE 8.3: CHANGE QUEUE ========================
+
+@router.post("/enqueue-file-change")
+async def enqueue_file_change_endpoint(
+    file_path: str,
+    change_type: str,
+    old_path: str = None
+):
+    """
+    Add a file change to the processing queue (Phase 8.3).
+    
+    Enqueues a file that has been detected as changed for later processing
+    by the maintenance worker. This decouples change detection from processing.
+    
+    Args:
+        file_path: Path to the changed file
+        change_type: Type of change (modified, added, deleted, renamed)
+        old_path: Original path for renamed files
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - message: Human-readable status message
+        - file_path: The file that was queued
+        - change_type: The type of change
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.3] Enqueue endpoint called: {change_type} - {file_path}"
+        )
+        result = enqueue_file_change(file_path, change_type, old_path)
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error enqueueing file change: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.get("/pending-file-changes")
+async def get_pending_file_changes_endpoint(max_changes: int = 100):
+    """
+    Get pending file changes waiting for processing (Phase 8.3).
+    
+    Retrieves pending changes from the processing queue without removing them.
+    Use this to inspect what files are awaiting processing.
+    
+    Args:
+        max_changes: Maximum number of changes to retrieve (default: 100)
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - changes: List of pending FileChangeRequest objects
+        - count: Number of changes returned
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.3] Getting pending changes (peek)"
+        )
+        result = get_pending_changes(max_changes)
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error getting pending changes: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes": [],
+            "count": 0
+        }
+
+
+@router.post("/consume-file-changes")
+async def consume_file_changes_endpoint(max_changes: int = 100):
+    """
+    Get and remove pending file changes from the processing queue (Phase 8.3).
+    
+    Consumes changes from the processing queue, removing them for processing.
+    Typically called by the maintenance worker to get files to process.
+    
+    Args:
+        max_changes: Maximum number of changes to consume (default: 100)
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - changes: List of FileChangeRequest objects (removed from queue)
+        - count: Number of changes consumed
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.3] Consuming up to {max_changes} file changes"
+        )
+        result = consume_queue_changes(max_changes)
+        
+        count = result.get("count", 0)
+        if count > 0:
+            logger.info(f"[PHASE 8.3] Consumed {count} changes for processing")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error consuming changes: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes": [],
+            "count": 0
+        }
+
+
+@router.get("/file-change-queue-status")
+async def get_file_change_queue_status_endpoint():
+    """
+    Get the current status of the file change processing queue (Phase 8.3).
+    
+    Returns statistics about the queue including pending count,
+    processed count, and uptime.
+    
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - queue_size: Number of pending changes
+        - processed_count: Number of successfully processed changes
+        - error_count: Number of changes that failed processing
+        - total_processed: processed_count + error_count
+        - uptime_seconds: How long the queue has been active
+    """
+    try:
+        logger.debug("[PHASE 8.3] Getting file change queue status")
+        result = get_queue_status()
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error getting queue status: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.post("/mark-file-change-processed")
+async def mark_file_change_processed_endpoint(
+    file_path: str,
+    success: bool = True,
+    error: str = None
+):
+    """
+    Mark a file change as processed (Phase 8.3).
+    
+    Updates statistics when a file change has been processed.
+    Called by the maintenance worker after processing a change.
+    
+    Args:
+        file_path: Path to the file that was processed
+        success: Whether processing was successful (default: True)
+        error: Error message if processing failed
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - message: Human-readable status message
+        - file_path: The file that was marked
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.3] Marking processed: {file_path} (success={success})"
+        )
+        result = mark_change_processed(file_path, success, error)
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error marking change as processed: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.post("/clear-file-change-queue")
+async def clear_file_change_queue_endpoint():
+    """
+    Clear all pending file changes from the processing queue (Phase 8.3).
+    
+    Removes all queued file changes without processing them.
+    Use with caution as this will skip pending updates.
+    
+    Returns:
+        Dictionary containing:
+        - status: "cleared" or "failed"
+        - changes_cleared: Number of changes that were removed
+    """
+    try:
+        logger.warning("[PHASE 8.3] Clearing all file changes from queue")
+        result = clear_all_changes()
+        
+        cleared = result.get("changes_cleared", 0)
+        if cleared > 0:
+            logger.info(f"[PHASE 8.3] Cleared {cleared} changes from queue")
+        else:
+            logger.debug("[PHASE 8.3] No changes to clear")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.3] Error clearing queue: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes_cleared": 0
+        }
+
+
+# ======================== PHASE 8.4: AST DIFFING ========================
+
+@router.post("/diff-file")
+async def diff_file_endpoint(
+    file_path: str,
+    old_version: str = "HEAD"
+):
+    """
+    Compare a file against a previous version using AST diffing (Phase 8.4).
+    
+    Parses both old and new versions of the file and compares their ASTs
+    to identify which functions and classes have changed.
+    
+    Args:
+        file_path: Path to the file to diff
+        old_version: Git ref to compare against (default: HEAD)
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - file_path: The file that was diffed
+        - compared_against: The git ref used for comparison
+        - changes: List of symbol changes (added, removed, modified)
+        - summary: Statistics about the changes
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.4] Diff endpoint: {file_path} vs {old_version}"
+        )
+        result = diff_file_against_version(file_path, old_version)
+        
+        if result["status"] == "success":
+            summary = result.get("summary", {})
+            logger.info(
+                f"[PHASE 8.4] Found {summary.get('total_changes', 0)} changes"
+            )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.4] Error diffing file: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes": [],
+            "summary": {
+                "total_changes": 0,
+                "added": 0,
+                "removed": 0,
+                "modified": 0
+            }
+        }
+
+
+@router.get("/get-symbol-changes")
+async def get_symbol_changes_endpoint(
+    file_path: str,
+    old_version: str = "HEAD"
+):
+    """
+    Get symbol-level changes for a file (Phase 8.4).
+    
+    Returns changes grouped by type (added, removed, modified).
+    
+    Args:
+        file_path: Path to the file
+        old_version: Git ref to compare against (default: HEAD)
+        
+    Returns:
+        Dictionary with changes grouped by type:
+        - added: New functions and classes
+        - removed: Deleted functions and classes
+        - modified: Changed functions and classes with signature diffs
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.4] Getting symbol changes for {file_path}"
+        )
+        result = get_symbol_changes(file_path, old_version)
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.4] Error getting symbol changes: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "added": [],
+            "removed": [],
+            "modified": []
+        }
+
+
+@router.get("/get-file-symbols")
+async def get_file_symbols_endpoint(file_path: str):
+    """
+    Get all current symbols (functions/classes) in a file (Phase 8.4).
+    
+    Extracts all top-level function and class definitions from the current
+    version of the file.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - file_path: The file analyzed
+        - symbols: List of all symbols with details
+        - count: Number of symbols found
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.4] Getting symbols for {file_path}"
+        )
+        result = get_file_symbols(file_path)
+        
+        if result["status"] == "success":
+            count = result.get("count", 0)
+            logger.debug(f"[PHASE 8.4] Found {count} symbols")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.4] Error getting file symbols: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e),
+            "symbols": [],
+            "count": 0
+        }
+
+
+@router.get("/get-change-impact")
+async def get_change_impact_endpoint(
+    file_path: str,
+    old_version: str = "HEAD"
+):
+    """
+    Get high-level impact summary of changes (Phase 8.4).
+    
+    Analyzes changes and provides:
+    - Impact level (none, low, medium, high)
+    - Whether changes are potentially breaking
+    - Recommendations for validation
+    
+    Args:
+        file_path: Path to the file
+        old_version: Git ref to compare against (default: HEAD)
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - impact_level: Overall impact (none, low, medium, high)
+        - impact_description: Human-readable description
+        - has_removals: Whether symbols were removed
+        - has_signature_changes: Whether signatures changed
+        - recommendations: List of suggested actions
+    """
+    try:
+        logger.info(
+            f"[PHASE 8.4] Getting impact summary for {file_path}"
+        )
+        result = get_change_impact_summary(file_path, old_version)
+        
+        if result.get("status") == "success":
+            impact = result.get("impact_level", "unknown")
+            logger.info(f"[PHASE 8.4] Impact level: {impact}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"[PHASE 8.4] Error getting change impact: {str(e)}",
+            exc_info=True
+        )
+        return {
+            "status": "failed",
+            "error": str(e)
         }
 
