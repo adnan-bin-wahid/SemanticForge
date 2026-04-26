@@ -28,6 +28,10 @@ from app.services.file_watcher_integration import (
     start_file_watcher, stop_file_watcher, get_watcher_status, 
     get_pending_changes, consume_changes, clear_changes
 )
+from app.services.git_diff_integration import (
+    start_git_diff_poller, stop_git_diff_poller, get_git_poller_status,
+    get_pending_git_changes, consume_git_changes, clear_git_changes
+)
 from fastapi import Request
 from pathlib import Path
 import os
@@ -1053,5 +1057,254 @@ async def clear_changes_endpoint():
         return {
             "status": "failed",
             "error": str(e)
+        }
+
+
+# ============================================================
+# PHASE 8.2: Git Diff Polling (Alternative)
+# ============================================================
+
+@router.post("/start-git-diff-poller")
+async def start_git_diff_poller_endpoint(repo_path: str = "/app/test-project", 
+                                        poll_interval: int = 2):
+    """
+    Start the Git Diff Poller for change detection (Phase 8.2).
+    
+    Initializes a Git-based alternative change detection mechanism that periodically
+    runs `git diff` and `git status` to detect modified, added, and deleted files.
+    This provides a robust, Git-aware strategy for tracking repository changes.
+    
+    The poller runs in the background and queues detected changes for processing.
+    Only monitors Python files (.py, .pyi) and ignores common directories
+    like __pycache__, .git, .venv, node_modules, etc.
+    
+    Args:
+        repo_path: Path to the Git repository to monitor (default: /app/test-project for Docker)
+        poll_interval: Seconds between git diff polls (default: 2 seconds)
+    
+    Returns:
+        Status dictionary containing:
+        - status: "started", "already_running", or "failed"
+        - message: Human-readable status message
+        - repo_path: Repository path being monitored
+        - start_time: ISO format timestamp when poller started
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"========== PHASE 8.2 START: Git Diff Poller ==========")
+    logger.info(f"[PHASE 8.2] Starting Git diff poller for {repo_path} (poll interval: {poll_interval}s)")
+    
+    try:
+        result = start_git_diff_poller(repo_path, poll_interval)
+        
+        if result.get("status") == "started":
+            logger.info(f"[PHASE 8.2] ✓ Git diff poller started successfully")
+            logger.info(f"[PHASE 8.2] Repository path: {repo_path}")
+            logger.info(f"[PHASE 8.2] Start time: {result.get('start_time')}")
+            logger.info(f"[PHASE 8.2] Poll interval: {poll_interval} seconds")
+        elif result.get("status") == "already_running":
+            logger.info(f"[PHASE 8.2] Git diff poller already running since {result.get('start_time')}")
+        else:
+            logger.error(f"[PHASE 8.2] Failed to start git diff poller: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error starting git diff poller: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "phase": "8.2"
+        }
+
+
+@router.post("/stop-git-diff-poller")
+async def stop_git_diff_poller_endpoint():
+    """
+    Stop the Git Diff Poller (Phase 8.2).
+    
+    Gracefully shuts down the Git diff poller and returns statistics about
+    detected changes before stopping.
+    
+    Returns:
+        Status dictionary containing:
+        - status: "stopped", "not_running", or "failed"
+        - message: Human-readable status message
+        - events_detected: Total file changes detected since start
+        - events_by_type: Breakdown by event type (modified, added, deleted, renamed)
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"[PHASE 8.2] Stopping Git diff poller")
+    
+    try:
+        result = stop_git_diff_poller()
+        
+        if result.get("status") == "stopped":
+            logger.info(f"[PHASE 8.2] ✓ Git diff poller stopped successfully")
+            logger.info(f"[PHASE 8.2] Events detected: {result.get('events_detected', 0)}")
+            events_by_type = result.get('events_by_type', {})
+            logger.info(f"[PHASE 8.2] Modified: {events_by_type.get('modified', 0)}, "
+                       f"Added: {events_by_type.get('added', 0)}, "
+                       f"Deleted: {events_by_type.get('deleted', 0)}, "
+                       f"Renamed: {events_by_type.get('renamed', 0)}")
+        elif result.get("status") == "not_running":
+            logger.info(f"[PHASE 8.2] Git diff poller is not running")
+        else:
+            logger.error(f"[PHASE 8.2] Failed to stop git diff poller: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.2 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error stopping git diff poller: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "phase": "8.2"
+        }
+
+
+@router.get("/git-poller-status")
+async def get_git_poller_status_endpoint():
+    """
+    Get the current status of the Git Diff Poller (Phase 8.2).
+    
+    Returns detailed status information about the running poller,
+    including uptime, event counts, queue status, and current commit hash.
+    
+    Returns:
+        Status dictionary containing:
+        - is_running: Boolean indicating if poller is active
+        - repo_path: Repository path being monitored
+        - start_time: ISO format timestamp when poller started
+        - uptime_seconds: How long the poller has been running
+        - poll_interval_seconds: Seconds between polls
+        - events_detected: Total file changes detected
+        - events_by_type: Breakdown by event type (modified, added, deleted, renamed)
+        - queue_size: Number of unprocessed changes in queue
+        - current_commit: First 8 chars of current commit hash
+    """
+    try:
+        result = get_git_poller_status()
+        
+        if result.get("is_running"):
+            logger.debug(f"[PHASE 8.2] Poller status: running, queue size: {result.get('queue_size', 0)}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error getting poller status: {str(e)}", exc_info=True)
+        return {
+            "is_running": False,
+            "error": str(e)
+        }
+
+
+@router.get("/pending-git-changes")
+async def get_pending_git_changes_endpoint(max_changes: int = 100):
+    """
+    Get pending Git changes without consuming them (Phase 8.2).
+    
+    Retrieves up to max_changes detected file changes from the queue
+    without removing them. Use this to preview changes before consuming.
+    
+    Args:
+        max_changes: Maximum number of changes to retrieve (default: 100)
+    
+    Returns:
+        Dictionary containing:
+        - status: "success", "poller_not_running", or "failed"
+        - changes: List of change events with structure:
+            - event_type: "modified", "added", "deleted", or "renamed"
+            - file_path: Path to the changed file (relative to repo root)
+            - timestamp: ISO format timestamp of the event
+            - git_status: Git status code (M, A, D, R, etc.)
+    """
+    try:
+        result = get_pending_git_changes(max_changes)
+        
+        changes = result.get("changes", [])
+        if changes:
+            logger.debug(f"[PHASE 8.2] Retrieved {len(changes)} pending git changes")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error getting pending git changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes": []
+        }
+
+
+@router.post("/consume-git-changes")
+async def consume_git_changes_endpoint(max_changes: int = 100):
+    """
+    Consume (remove from queue) pending Git changes (Phase 8.2).
+    
+    Retrieves up to max_changes detected file changes from the queue
+    and removes them from the queue. These changes are then passed to
+    subsequent phases (8.3 Queue, 8.4 AST Diffing, etc.) for processing.
+    
+    Args:
+        max_changes: Maximum number of changes to consume (default: 100)
+    
+    Returns:
+        Dictionary containing:
+        - status: "success", "poller_not_running", or "failed"
+        - changes: List of consumed change events with structure:
+            - event_type: "modified", "added", "deleted", or "renamed"
+            - file_path: Path to the changed file (relative to repo root)
+            - timestamp: ISO format timestamp of the event
+            - git_status: Git status code (M, A, D, R, etc.)
+    """
+    try:
+        result = consume_git_changes(max_changes)
+        
+        consumed = len(result.get("changes", []))
+        if consumed > 0:
+            logger.info(f"[PHASE 8.2] Consumed {consumed} changes from git change queue")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error consuming git changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes": []
+        }
+
+
+@router.post("/clear-git-changes")
+async def clear_git_changes_endpoint():
+    """
+    Clear all pending Git changes from the queue (Phase 8.2).
+    
+    Removes all detected file changes from the queue without processing them.
+    Use this to reset the poller state or skip accumulated changes.
+    
+    Returns:
+        Dictionary containing:
+        - status: "cleared", "poller_not_running", or "failed"
+        - changes_cleared: Number of changes that were removed from the queue
+    """
+    try:
+        result = clear_git_changes()
+        
+        cleared = result.get("changes_cleared", 0)
+        if cleared > 0:
+            logger.info(f"[PHASE 8.2] Cleared {cleared} changes from git change queue")
+        else:
+            logger.debug(f"[PHASE 8.2] No git changes to clear")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.2] Error clearing git changes: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "changes_cleared": 0
         }
 
