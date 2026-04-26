@@ -1,14 +1,32 @@
+# Core Framework
 fastapi
 uvicorn[standard]
+pydantic
+
+# Databases
 neo4j
 qdrant-client
+
+# Machine Learning & NLP
 torch==2.11.0
 sentence-transformers
 rank_bm25
 numpy
 nltk
+
+# Code Quality & Testing
 ruff
 mypy
 coverage
 pytest
+
+# File System & Change Detection
 watchdog
+GitPython
+
+# AST & Code Analysis
+# (ast is built-in Python library)
+
+# Utilities
+requests
+python-dotenv
