@@ -1,15 +1,11 @@
-def add(a, b, c=0):
-    """Add up to three numbers"""
-    return a + b + c
+def add(a, b):
+    """Add two numbers"""
+    return a + b
 
-def multiply(a, b):
-    """Multiply two numbers"""
-    return a * b
+def subtract(a, b):
+    """Subtract b from a"""
+    return a - b
 
-class AdvancedCalc:
-    """Advanced calculator with methods"""
-    
-    def divide(self, a, b):
-        if b == 0:
-            raise ValueError("Cannot divide by zero")
-        return a / b
+class Calculator:
+    """Simple calculator class"""
+    pass

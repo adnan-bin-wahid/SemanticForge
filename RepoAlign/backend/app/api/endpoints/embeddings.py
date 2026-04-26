@@ -10,6 +10,11 @@ from app.services.graph_expansion import GraphExpansion
 from app.models.search import GraphExpansionRequest, GraphExpansionResponse
 from app.models.search import ContextRetrievalRequest, ContextRetrievalResponse
 from app.models.search import GeneratePatchRequest, GeneratePatchResponse, DiffStats, ValidationReport
+from app.models.maintenance import (
+    InvalidateFileChangesRequest, InvalidateRemovedSymbolRequest,
+    InvalidateModifiedSymbolRequest, InvalidationImpactRequest,
+    ReAnalyzeFileChangesRequest, ReAnalyzeSingleSymbolRequest, ReAnalyzeBatchRequest
+)
 from app.services.code_generation import CodeGenerator
 from app.services.diff_generator import DiffGenerator
 from app.services.constraint_checker_integration import validate_patch_completely, validate_patch_completely_from_content, generate_validation_report
@@ -39,6 +44,13 @@ from app.services.change_queue_integration import (
 from app.services.ast_diff_integration import (
     diff_file_against_version, get_symbol_changes, get_file_symbols,
     get_change_impact_summary
+)
+from app.services.graph_invalidator_integration import (
+    invalidate_removed_symbol, invalidate_modified_symbol, invalidate_file_changes,
+    get_invalidation_impact
+)
+from app.services.re_analyzer_integration import (
+    re_analyze_file_changes, re_analyze_single_symbol, re_analyze_batch
 )
 from fastapi import Request
 from pathlib import Path
@@ -1740,3 +1752,408 @@ async def get_change_impact_endpoint(
             "error": str(e)
         }
 
+
+# ======================== PHASE 8.5: GRAPH INVALIDATION ========================
+
+@router.post("/invalidate-removed-symbol")
+async def invalidate_removed_symbol_endpoint(request: InvalidateRemovedSymbolRequest):
+    """
+    Delete a removed symbol node and its relationships from Neo4j (Phase 8.5).
+    
+    When a function or class is deleted from the source code, this endpoint
+    surgically removes the corresponding node and all its connected relationships
+    from the Neo4j knowledge graph.
+    
+    Uses DETACH DELETE to cascade relationship cleanup, ensuring the graph
+    remains consistent with the current source code state.
+    
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - nodes_deleted: Number of nodes deleted
+        - relationships_deleted: Number of relationships deleted
+        - message: Human-readable status message
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"========== PHASE 8.5 START: Remove Symbol Invalidation ==========")
+    logger.info(f"[PHASE 8.5] Invalidating removed symbol: {request.file_path}::{request.symbol_name} ({request.symbol_type})")
+    
+    try:
+        result = invalidate_removed_symbol(request.file_path, request.symbol_name, request.symbol_type)
+        
+        if result.get("status") == "success":
+            nodes_deleted = result.get("nodes_deleted", 0)
+            rels_deleted = result.get("relationships_deleted", 0)
+            logger.info(f"[PHASE 8.5] ✓ Symbol invalidated successfully")
+            logger.info(f"[PHASE 8.5] Nodes deleted: {nodes_deleted}")
+            logger.info(f"[PHASE 8.5] Relationships deleted: {rels_deleted}")
+        else:
+            logger.error(f"[PHASE 8.5] Failed to invalidate symbol: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.5 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.5] Error invalidating removed symbol: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "nodes_deleted": 0,
+            "relationships_deleted": 0
+        }
+
+
+@router.post("/invalidate-modified-symbol")
+async def invalidate_modified_symbol_endpoint(request: InvalidateModifiedSymbolRequest):
+    """
+    Update a modified symbol node with new signature and metadata (Phase 8.5).
+    
+    When a function or class signature changes (parameters added/removed, docstring updated),
+    this endpoint updates the corresponding node in Neo4j with the new information.
+    
+    Unlike removed symbols, modified symbols keep their node but update its properties
+    with the new signature and docstring. This preserves the node's relationships
+    while marking its content as invalidated (stale).
+    
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - symbol_name: The symbol that was updated
+        - symbol_type: Type of the symbol
+        - new_signature: The new signature that was set
+        - message: Human-readable status message
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"[PHASE 8.5] Invalidating modified symbol: {request.file_path}::{request.symbol_name} ({request.symbol_type})")
+    
+    try:
+        result = invalidate_modified_symbol(request.file_path, request.symbol_name, request.symbol_type, request.new_signature, request.new_docstring)
+        
+        if result.get("status") == "success":
+            logger.info(f"[PHASE 8.5] ✓ Symbol updated successfully")
+            logger.info(f"[PHASE 8.5] New signature: {request.new_signature}")
+            if request.new_docstring:
+                logger.debug(f"[PHASE 8.5] New docstring: {request.new_docstring[:100]}...")
+        else:
+            logger.error(f"[PHASE 8.5] Failed to update symbol: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.5] Error invalidating modified symbol: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "symbol_name": request.symbol_name,
+            "symbol_type": request.symbol_type
+        }
+
+
+@router.post("/invalidate-file-changes")
+async def invalidate_file_changes_endpoint(request: InvalidateFileChangesRequest):
+    """
+    Batch invalidate multiple symbol changes for a file (Phase 8.5).
+    
+    Processes all symbol changes for a file at once:
+    - removed_symbols: List of symbols to delete from the graph
+    - modified_symbols: List of symbols to update with new signatures
+    
+    This is the main endpoint called during incremental maintenance to
+    handle all symbol changes detected by Phase 8.4 AST Diffing.
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - removed_count: Number of symbols that were deleted
+        - modified_count: Number of symbols that were updated
+        - total_nodes_deleted: Total nodes deleted from graph
+        - total_relationships_deleted: Total relationships deleted from graph
+        - error_count: Number of symbols that failed to process
+        - reports: List of individual InvalidationReport objects for each symbol
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"========== PHASE 8.5 START: Batch File Invalidation ==========")
+    logger.info(f"[PHASE 8.5] Invalidating file changes: {request.file_path}")
+    logger.info(f"[PHASE 8.5] Symbols to remove: {len(request.removed_symbols)}")
+    logger.info(f"[PHASE 8.5] Symbols to modify: {len(request.modified_symbols)}")
+    
+    try:
+        result = invalidate_file_changes(
+            request.file_path, 
+            [s.dict() for s in request.removed_symbols],
+            [m.dict() for m in request.modified_symbols]
+        )
+        
+        if result.get("status") == "success":
+            logger.info(f"[PHASE 8.5] ✓ File invalidation complete")
+            logger.info(f"[PHASE 8.5] Removed: {result.get('removed_count', 0)}")
+            logger.info(f"[PHASE 8.5] Modified: {result.get('modified_count', 0)}")
+            logger.info(f"[PHASE 8.5] Nodes deleted: {result.get('total_nodes_deleted', 0)}")
+            logger.info(f"[PHASE 8.5] Relationships deleted: {result.get('total_relationships_deleted', 0)}")
+            
+            error_count = result.get("error_count", 0)
+            if error_count > 0:
+                logger.warning(f"[PHASE 8.5] Errors during processing: {error_count}")
+        else:
+            logger.error(f"[PHASE 8.5] Batch invalidation failed: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.5 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.5] Error during batch invalidation: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "removed_count": 0,
+            "modified_count": 0,
+            "total_nodes_deleted": 0,
+            "total_relationships_deleted": 0,
+            "error_count": 0,
+            "reports": []
+        }
+
+
+@router.post("/invalidate-impact")
+async def invalidate_impact_endpoint(request: InvalidationImpactRequest):
+    """
+    Preview the impact of invalidating a symbol (Phase 8.5).
+    
+    Performs a dry-run analysis showing what would be deleted if the symbol
+    were invalidated. Useful for understanding the scope of changes before
+    committing to invalidation.
+    
+    Returns:
+    - relationship_count: Number of relationships connected to the node
+    - connected_node_count: Number of nodes connected through those relationships
+    - relationship_types: List of relationship types (CALLS, CALLED_BY, etc.)
+    - connected_labels: List of node types that would be affected (Function, Class, etc.)
+    - would_delete: True/False indicating if the node exists
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - symbol_name: The symbol analyzed
+        - would_delete: Boolean indicating if symbol exists and can be deleted
+        - relationship_count: Number of relationships that would be removed
+        - connected_node_count: Number of connected nodes that would be orphaned
+        - relationship_types: List of relationship types (e.g., CALLS, CALLED_BY)
+        - connected_labels: List of node labels that would be affected
+        - error: Error message if status is "failed"
+    """
+    logger.info(f"[PHASE 8.5] Analyzing invalidation impact: {request.file_path}::{request.symbol_name} ({request.symbol_type})")
+    
+    try:
+        result = get_invalidation_impact(request.file_path, request.symbol_name, request.symbol_type)
+        
+        if result.get("status") == "success":
+            would_delete = result.get("would_delete", False)
+            rels = result.get("relationship_count", 0)
+            nodes = result.get("connected_node_count", 0)
+            
+            if would_delete:
+                logger.info(f"[PHASE 8.5] ✓ Symbol exists and would be deleted")
+                logger.info(f"[PHASE 8.5] Impact: {rels} relationships, {nodes} connected nodes")
+            else:
+                logger.info(f"[PHASE 8.5] Symbol does not exist or cannot be deleted")
+        else:
+            logger.error(f"[PHASE 8.5] Failed to analyze impact: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.5] Error analyzing invalidation impact: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e),
+            "symbol_name": request.symbol_name,
+            "would_delete": False,
+            "relationship_count": 0,
+            "connected_node_count": 0,
+            "relationship_types": [],
+            "connected_labels": []
+        }
+
+
+# ======================== PHASE 8.6: RE-ANALYSIS ========================
+
+@router.post("/re-analyze-file-changes")
+async def re_analyze_file_changes_endpoint(request: ReAnalyzeFileChangesRequest):
+    """
+    Re-analyze changed symbols using Phase 2 static analysis pipeline (Phase 8.6).
+    
+    Takes the output of Phase 8.4 AST Diffing (list of added and modified symbols)
+    and re-runs the static analysis pipeline (Phase 2) on ONLY those symbols.
+    
+    This generates updated structured data for the changed symbols, which Phase 8.7
+    will use to create new/updated nodes in the knowledge graph.
+        
+    Returns:
+        Dictionary containing:
+        - status: "success", "partial", or "failed"
+        - file_path: The file that was analyzed
+        - added_symbols: List of re-analyzed added symbols with full structure
+        - modified_symbols: List of re-analyzed modified symbols with full structure
+        - error_count: Number of symbols that failed to analyze
+        - errors: List of error messages
+    """
+    logger.info(f"========== PHASE 8.6 START: File Changes Re-Analysis ==========")
+    logger.info(f"[PHASE 8.6] Re-analyzing changed symbols in {request.file_path}")
+    logger.info(f"[PHASE 8.6] Added symbols: {len(request.added_symbols)}")
+    logger.info(f"[PHASE 8.6] Modified symbols: {len(request.modified_symbols)}")
+    
+    try:
+        result = re_analyze_file_changes(
+            file_path=request.file_path,
+            file_content=request.file_content,
+            added_symbols=[s.dict() for s in request.added_symbols],
+            modified_symbols=[s.dict() for s in request.modified_symbols]
+        )
+        
+        if result.get("status") != "failed":
+            logger.info(f"[PHASE 8.6] ✓ Re-analysis complete")
+            added_count = len(result.get("added_symbols", []))
+            modified_count = len(result.get("modified_symbols", []))
+            logger.info(f"[PHASE 8.6] Successfully analyzed: {added_count + modified_count} symbols")
+            logger.info(f"[PHASE 8.6] Errors: {result.get('error_count', 0)}")
+        else:
+            logger.error(f"[PHASE 8.6] Re-analysis failed: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.6 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.6] Error during re-analysis: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "file_path": request.file_path,
+            "added_symbols": [],
+            "modified_symbols": [],
+            "error_count": 1,
+            "errors": [str(e)]
+        }
+
+
+@router.post("/re-analyze-symbol")
+async def re_analyze_symbol_endpoint(request: ReAnalyzeSingleSymbolRequest):
+    """
+    Re-analyze a single symbol in isolation (Phase 8.6).
+    
+    Useful for understanding the complete structure of a single changed symbol.
+    Runs the Phase 2 static analysis pipeline on just that symbol.
+    
+    Returns:
+        Dictionary containing:
+        - status: "success" or "failed"
+        - symbol: Complete re-analyzed symbol data with all metadata
+        - error: Error message if status is "failed"
+        
+    Symbol data includes:
+    - signature: Full function/class signature
+    - docstring: Documentation string
+    - parameters: List of parameters with types and defaults
+    - imports_used: List of imports used in the symbol
+    - functions_called: List of functions called by the symbol
+    - cyclomatic_complexity: Code complexity metric
+    - lines_of_code: Number of lines in the symbol
+    """
+    logger.info(f"[PHASE 8.6] Re-analyzing single {request.symbol_type}: {request.symbol_name}")
+    
+    try:
+        result = re_analyze_single_symbol(
+            file_path=request.file_path,
+            file_content=request.file_content,
+            symbol_name=request.symbol_name,
+            symbol_type=request.symbol_type
+        )
+        
+        if result.get("status") == "success":
+            symbol = result.get("symbol", {})
+            logger.info(f"[PHASE 8.6] ✓ Single symbol re-analysis complete")
+            logger.info(f"[PHASE 8.6] Symbol: {symbol.get('symbol_name', 'unknown')}")
+            logger.info(f"[PHASE 8.6] Lines of code: {symbol.get('lines_of_code', 0)}")
+            logger.info(f"[PHASE 8.6] Complexity: {symbol.get('cyclomatic_complexity', 0)}")
+        else:
+            logger.warning(f"[PHASE 8.6] Re-analysis failed: {result.get('error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.6] Error during single symbol analysis: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+@router.post("/re-analyze-batch")
+async def re_analyze_batch_endpoint(request: ReAnalyzeBatchRequest):
+    """
+    Batch re-analyze multiple files' changed symbols (Phase 8.6).
+    
+    Orchestrates re-analysis across multiple files in one request.
+    Useful for processing all changed files after Phase 8.4 AST diffing.
+        
+    Returns:
+        Dictionary containing:
+        - status: "success" or "partial"
+        - total_files: Number of files processed
+        - results: List of re-analysis results for each file
+        - total_symbols_analyzed: Total symbols re-analyzed across all files
+        - total_errors: Total errors across all files
+        
+    Example Request:
+    {
+        "file_analyses": [
+            {
+                "file_path": "/path/to/file1.py",
+                "file_content": "def func1(): ...",
+                "added_symbols": [{"symbol_name": "new_func", "symbol_type": "function"}],
+                "modified_symbols": [{"symbol_name": "updated_func", "symbol_type": "function"}]
+            },
+            {
+                "file_path": "/path/to/file2.py",
+                "file_content": "class MyClass: ...",
+                "added_symbols": [],
+                "modified_symbols": [{"symbol_name": "MyClass", "symbol_type": "class"}]
+            }
+        ]
+    }
+    """
+    logger.info(f"========== PHASE 8.6 START: Batch Re-Analysis ==========")
+    logger.info(f"[PHASE 8.6] Batch re-analysis for {len(request.file_analyses)} files")
+    
+    try:
+        file_analyses_dicts = [
+            {
+                "file_path": fa.file_path,
+                "file_content": fa.file_content,
+                "added_symbols": [s.dict() for s in fa.added_symbols],
+                "modified_symbols": [s.dict() for s in fa.modified_symbols]
+            }
+            for fa in request.file_analyses
+        ]
+        
+        result = re_analyze_batch(file_analyses_dicts)
+        
+        if result.get("status") != "failed":
+            logger.info(f"[PHASE 8.6] ✓ Batch re-analysis complete")
+            logger.info(f"[PHASE 8.6] Total files: {result.get('total_files', 0)}")
+            logger.info(f"[PHASE 8.6] Total symbols analyzed: {result.get('total_symbols_analyzed', 0)}")
+            logger.info(f"[PHASE 8.6] Total errors: {result.get('total_errors', 0)}")
+        else:
+            logger.error(f"[PHASE 8.6] Batch re-analysis failed: {result.get('error', 'Unknown error')}")
+        
+        logger.info(f"========== PHASE 8.6 END ==========")
+        return result
+        
+    except Exception as e:
+        logger.error(f"[PHASE 8.6] Error during batch re-analysis: {str(e)}", exc_info=True)
+        return {
+            "status": "failed",
+            "total_files": len(request.file_analyses),
+            "results": [],
+            "total_symbols_analyzed": 0,
+            "total_errors": len(request.file_analyses),
+            "error": str(e)
+        }
