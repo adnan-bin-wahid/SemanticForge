@@ -225,6 +225,12 @@ async function saveIndexingState(
   await context.workspaceState.update(INDEXING_STATE_KEY, state);
 }
 
+async function clearIndexingState(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  await context.workspaceState.update(INDEXING_STATE_KEY, undefined);
+}
+
 function createIndexingState(
   validation: WorkspaceValidationResult,
   graphStatus: GraphIndexStatus,
@@ -289,6 +295,22 @@ function reportIndexingState(state: IndexingState | undefined): void {
   vscode.window.showInformationMessage(
     `RepoAlign graph status: ${state.graphStatus}. Indexed ${state.indexedFileCount}/${state.discoveredFileCount} file(s).`,
   );
+}
+
+function appendOutputSection(title: string, lines: string[] = []): void {
+  outputChannel.appendLine("");
+  outputChannel.appendLine(title);
+  outputChannel.appendLine("-".repeat(title.length));
+  for (const line of lines) {
+    outputChannel.appendLine(line);
+  }
+}
+
+function notifyRepoAlignError(title: string, error: unknown): void {
+  const message = getErrorMessage(error);
+  appendOutputSection(title, [message]);
+  outputChannel.show(true);
+  vscode.window.showErrorMessage(`${title}: ${message}`);
 }
 
 async function sendWorkspaceFileChange(
@@ -604,6 +626,87 @@ async function runInitialRepositoryIndexing(
   );
 }
 
+async function runReindexEmbeddings(): Promise<void> {
+  const config = getRepoAlignConfig();
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "RepoAlign: Re-indexing embeddings...",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 10, message: "Checking backend..." });
+      const readiness = await runBackendReadinessCheck();
+      if (!readiness?.ready) {
+        throw new Error("Backend readiness check failed. See RepoAlign output for details.");
+      }
+
+      progress.report({ increment: 40, message: "Indexing symbols into Qdrant..." });
+      const response = await axios.post(`${config.backendUrl}/index-embeddings`, {}, {
+        timeout: 180000,
+      });
+
+      progress.report({ increment: 50, message: "Embeddings indexed." });
+      outputChannel.clear();
+      outputChannel.appendLine("RepoAlign Embedding Re-index");
+      outputChannel.appendLine("");
+      outputChannel.appendLine(JSON.stringify(response.data, null, 2));
+      outputChannel.show(true);
+
+      const indexedSymbols = response.data?.indexed_symbols;
+      vscode.window.showInformationMessage(
+        typeof indexedSymbols === "number"
+          ? `RepoAlign re-indexed ${indexedSymbols} symbol embedding(s).`
+          : "RepoAlign embedding re-index completed.",
+      );
+    },
+  );
+}
+
+async function runResetWorkspaceIndex(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  const config = getRepoAlignConfig();
+  const choice = await vscode.window.showWarningMessage(
+    "Reset RepoAlign graph and embedding index for this workspace? This clears the current backend graph/index data.",
+    { modal: true },
+    "Reset",
+  );
+
+  if (choice !== "Reset") {
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "RepoAlign: Resetting graph/index...",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 20, message: "Sending reset request..." });
+      const response = await axios.post(`${config.backendUrl}/workspace-index/reset`, {
+        workspace_id: getWorkspaceId(),
+        clear_graph: true,
+        clear_embeddings: true,
+      });
+
+      await clearIndexingState(context);
+
+      progress.report({ increment: 80, message: "Reset complete." });
+      outputChannel.clear();
+      outputChannel.appendLine("RepoAlign Workspace Reset");
+      outputChannel.appendLine("");
+      outputChannel.appendLine(JSON.stringify(response.data, null, 2));
+      outputChannel.show(true);
+      vscode.window.showInformationMessage(
+        "RepoAlign graph/index data reset. Run RepoAlign: Analyze Workspace to rebuild.",
+      );
+    },
+  );
+}
+
 async function runBackendReadinessCheck(): Promise<ReadinessResponse | undefined> {
   const config = getRepoAlignConfig();
 
@@ -767,6 +870,9 @@ function getWelcomeHtml(webview: vscode.Webview): string {
       <button data-command="readiness">Backend Readiness</button>
       <button data-command="analyze">Analyze Workspace</button>
       <button data-command="indexStatus">Indexing Status</button>
+      <button data-command="rebuild">Rebuild Graph</button>
+      <button data-command="embeddings">Re-index Embeddings</button>
+      <button data-command="reset">Reset Graph/Index</button>
       <button data-command="generate">Generate Patch</button>
       <button class="secondary" data-command="hide">Do Not Show Again</button>
     </div>
@@ -813,6 +919,15 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
       case "indexStatus":
         await vscode.commands.executeCommand("repoalign.showIndexingStatus");
         break;
+      case "rebuild":
+        await vscode.commands.executeCommand("repoalign.rebuildGraph");
+        break;
+      case "embeddings":
+        await vscode.commands.executeCommand("repoalign.reindexEmbeddings");
+        break;
+      case "reset":
+        await vscode.commands.executeCommand("repoalign.resetWorkspaceIndex");
+        break;
       case "generate":
         await vscode.commands.executeCommand("repoalign.generatePatch");
         break;
@@ -828,9 +943,7 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log(
-    'Congratulations, your extension "repoalign-frontend" is now active!',
-  );
+  outputChannel.appendLine("RepoAlign extension activated.");
 
   // Validation panel for displaying patch validation results
   let validationPanel: vscode.WebviewPanel | undefined;
@@ -861,6 +974,74 @@ export function activate(context: vscode.ExtensionContext) {
     "repoalign.showIndexingStatus",
     async () => {
       reportIndexingState(getIndexingState(context));
+    },
+  );
+
+  const rebuildGraphDisposable = vscode.commands.registerCommand(
+    "repoalign.rebuildGraph",
+    async () => {
+      const validation = await validateWorkspace();
+      if (validation.status !== "ready") {
+        reportWorkspaceValidation(validation);
+        return;
+      }
+
+      const choice = await vscode.window.showWarningMessage(
+        "Rebuild the RepoAlign graph from the current workspace files?",
+        "Rebuild",
+        "Cancel",
+      );
+
+      if (choice !== "Rebuild") {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "RepoAlign: Rebuilding graph...",
+          cancellable: true,
+        },
+        async (progress, token) => {
+          try {
+            await runInitialRepositoryIndexing(context, validation, progress, token);
+          } catch (error) {
+            const message = getErrorMessage(error);
+            await saveIndexingState(
+              context,
+              createIndexingState(validation, "failed", {
+                discoveredFileCount: validation.pythonFiles.length,
+                indexedFileCount: 0,
+                failedReadCount: 0,
+                lastError: message,
+              }),
+            );
+            notifyRepoAlignError("RepoAlign graph rebuild failed", error);
+          }
+        },
+      );
+    },
+  );
+
+  const resetWorkspaceIndexDisposable = vscode.commands.registerCommand(
+    "repoalign.resetWorkspaceIndex",
+    async () => {
+      try {
+        await runResetWorkspaceIndex(context);
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign reset failed", error);
+      }
+    },
+  );
+
+  const reindexEmbeddingsDisposable = vscode.commands.registerCommand(
+    "repoalign.reindexEmbeddings",
+    async () => {
+      try {
+        await runReindexEmbeddings();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign embedding re-index failed", error);
+      }
     },
   );
 
@@ -1196,10 +1377,10 @@ export function activate(context: vscode.ExtensionContext) {
                     `✓ Patch accepted and applied to the file.${validationMsg}`,
                   );
                 } catch (applyError) {
-                  vscode.window.showErrorMessage(
-                    "Failed to apply the patch to the file.",
+                  notifyRepoAlignError(
+                    "RepoAlign failed to apply the generated patch",
+                    applyError,
                   );
-                  console.error("Apply error:", applyError);
                 }
               } else if (userAction?.value === "reject") {
                 // Close the diff view
@@ -1213,18 +1394,12 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage("✗ Patch rejected.");
               }
             } catch (error) {
-              vscode.window.showErrorMessage(
-                "Failed to generate code patch. See console for details.",
-              );
-              console.error("Patch generation error:", error);
+              notifyRepoAlignError("RepoAlign patch generation failed", error);
             }
           },
         );
       } catch (error) {
-        vscode.window.showErrorMessage(
-          "An error occurred while running the command.",
-        );
-        console.error("Command execution error:", error);
+        notifyRepoAlignError("RepoAlign command failed", error);
       }
     },
   );
@@ -1234,6 +1409,9 @@ export function activate(context: vscode.ExtensionContext) {
     validateWorkspaceDisposable,
     checkReadinessDisposable,
     showIndexingStatusDisposable,
+    rebuildGraphDisposable,
+    resetWorkspaceIndexDisposable,
+    reindexEmbeddingsDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
@@ -1256,9 +1434,9 @@ export function activate(context: vscode.ExtensionContext) {
           "modified",
           document.getText(),
         );
-        console.log(`RepoAlign synced modified file: ${document.uri.fsPath}`);
+        outputChannel.appendLine(`Synced modified file: ${vscode.workspace.asRelativePath(document.uri, false)}`);
       } catch (error) {
-        console.error("RepoAlign failed to sync saved file:", error);
+        notifyRepoAlignError("RepoAlign failed to sync saved file", error);
       }
     }),
     vscode.workspace.onDidCreateFiles(async (event) => {
@@ -1278,9 +1456,9 @@ export function activate(context: vscode.ExtensionContext) {
         try {
           const document = await vscode.workspace.openTextDocument(uri);
           await sendWorkspaceFileChange(uri, "added", document.getText());
-          console.log(`RepoAlign synced added file: ${uri.fsPath}`);
+          outputChannel.appendLine(`Synced added file: ${vscode.workspace.asRelativePath(uri, false)}`);
         } catch (error) {
-          console.error("RepoAlign failed to sync created file:", error);
+          notifyRepoAlignError("RepoAlign failed to sync created file", error);
         }
       }
     }),
@@ -1300,9 +1478,9 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
           await sendWorkspaceFileChange(uri, "deleted");
-          console.log(`RepoAlign synced deleted file: ${uri.fsPath}`);
+          outputChannel.appendLine(`Synced deleted file: ${vscode.workspace.asRelativePath(uri, false)}`);
         } catch (error) {
-          console.error("RepoAlign failed to sync deleted file:", error);
+          notifyRepoAlignError("RepoAlign failed to sync deleted file", error);
         }
       }
     }),

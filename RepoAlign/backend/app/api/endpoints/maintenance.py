@@ -18,7 +18,9 @@ from app.services.maintenance_worker import get_maintenance_worker
 from app.services.change_queue import get_change_queue
 from app.services.full_maintenance_loop import get_full_maintenance_loop
 from app.db.neo4j_driver import get_neo4j_driver
+from app.db.qdrant_client import get_qdrant_client
 from app.models.code_structures import FileReport
+from app.services.embedding_indexer import COLLECTION_NAME
 
 router = APIRouter()
 
@@ -52,6 +54,13 @@ class WorkspaceFileChangeRequest(BaseModel):
     change_type: str  # "modified", "added", or "deleted"
     content: Optional[str] = None
     workspace_id: Optional[str] = None
+
+
+class WorkspaceResetRequest(BaseModel):
+    """Request to clear the graph and vector index for extension recovery."""
+    workspace_id: Optional[str] = None
+    clear_graph: bool = True
+    clear_embeddings: bool = True
 
 
 @router.post("/targeted-graph-update", tags=["Maintenance"])
@@ -273,6 +282,52 @@ async def graph_update_status():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get graph status: {str(e)}",
+        )
+
+
+@router.post("/workspace-index/reset", tags=["Maintenance", "Extension"])
+async def reset_workspace_index(request: WorkspaceResetRequest):
+    """
+    Clear RepoAlign graph and embedding data for recovery/demo workflows.
+
+    The current graph builder stores a single active workspace graph, so this
+    endpoint clears that graph and the shared code embedding collection. The
+    workspace_id is accepted for extension telemetry and future workspace-scoped
+    graph storage.
+    """
+    graph_nodes_deleted = 0
+    embedding_collection_deleted = False
+
+    try:
+        if request.clear_graph:
+            driver = get_neo4j_driver()
+            async with driver.session() as session:
+                result = await session.run("MATCH (n) RETURN count(n) AS node_count")
+                record = await result.single()
+                graph_nodes_deleted = record["node_count"] if record else 0
+                await session.run("MATCH (n) DETACH DELETE n")
+
+        if request.clear_embeddings:
+            qdrant = get_qdrant_client()
+            try:
+                qdrant.delete_collection(collection_name=COLLECTION_NAME)
+                embedding_collection_deleted = True
+            except Exception as e:
+                if "not found" not in str(e).lower():
+                    raise
+
+        return {
+            "status": "success",
+            "message": "Workspace graph/index data reset.",
+            "workspace_id": request.workspace_id,
+            "graph_nodes_deleted": graph_nodes_deleted,
+            "embedding_collection_deleted": embedding_collection_deleted,
+            "embedding_collection": COLLECTION_NAME,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset workspace index: {str(e)}",
         )
 
 

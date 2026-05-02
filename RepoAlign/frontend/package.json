@@ -16,6 +16,9 @@
     "onCommand:repoalign.validateWorkspace",
     "onCommand:repoalign.checkReadiness",
     "onCommand:repoalign.showIndexingStatus",
+    "onCommand:repoalign.rebuildGraph",
+    "onCommand:repoalign.resetWorkspaceIndex",
+    "onCommand:repoalign.reindexEmbeddings",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -38,6 +41,18 @@
       {
         "command": "repoalign.showIndexingStatus",
         "title": "RepoAlign: Indexing Status"
+      },
+      {
+        "command": "repoalign.rebuildGraph",
+        "title": "RepoAlign: Rebuild Graph"
+      },
+      {
+        "command": "repoalign.resetWorkspaceIndex",
+        "title": "RepoAlign: Reset Workspace Graph/Index"
+      },
+      {
+        "command": "repoalign.reindexEmbeddings",
+        "title": "RepoAlign: Re-index Embeddings"
       },
       {
         "command": "repoalign.healthCheck",
@@ -151,6 +166,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "smoke": "powershell -ExecutionPolicy Bypass -File ./scripts/smoke-test.ps1",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
