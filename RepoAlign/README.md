@@ -167,11 +167,13 @@ You have now successfully set up and run the full RepoAlign system.
 #### Quick Test with FastAPI Swagger UI
 
 1. **Open Swagger UI**:
+
    ```
    http://localhost:8000/docs
    ```
 
 2. **Create test file** (in a new terminal):
+
    ```bash
    docker-compose exec -T backend bash -c '
    cd /app/test-project
@@ -179,16 +181,16 @@ You have now successfully set up and run the full RepoAlign system.
    def add(a, b):
        """Add two numbers."""
        return a + b
-   
+
    def multiply(a, b):
        """Multiply two numbers."""
        return a * b
-   
+
    class Calculator:
        """Calculator class."""
        pass
    EOF
-   
+
    git add test_module.py
    git commit -m "Initial: Add test_module"
    echo "Test file created and committed"
@@ -199,6 +201,7 @@ You have now successfully set up and run the full RepoAlign system.
    - Navigate to `POST /api/v1/re-analyze-symbol`
    - Click "Try it out"
    - Paste this JSON:
+
    ```json
    {
      "file_path": "/app/test-project/test_module.py",
@@ -207,6 +210,7 @@ You have now successfully set up and run the full RepoAlign system.
      "symbol_type": "function"
    }
    ```
+
    - Click "Execute"
    - **Result**: Returns complete symbol metadata (signature, parameters, docstring, complexity, etc.)
 
@@ -223,24 +227,24 @@ You have now successfully set up and run the full RepoAlign system.
      "new_docstring": "Add three numbers"
    }
    ```
+
    - **Result**: Updates symbol with new signature
 
 #### Available Phase 8.5 & 8.6 Endpoints
 
-| Endpoint | Purpose | Use Case |
-|----------|---------|----------|
-| `POST /invalidate-impact` | Dry-run preview | See what would be deleted |
-| `POST /invalidate-removed-symbol` | Delete removed symbol | Remove deleted function from graph |
-| `POST /invalidate-modified-symbol` | Update modified symbol | Update changed signature |
-| `POST /invalidate-file-changes` | Batch invalidation | Handle all changes at once |
-| `POST /re-analyze-symbol` | Single symbol analysis | Deep dive into one function |
-| `POST /re-analyze-file-changes` | Batch file analysis | Re-analyze all changed symbols |
-| `POST /re-analyze-batch` | Multi-file analysis | Process entire changeset |
+| Endpoint                           | Purpose                | Use Case                           |
+| ---------------------------------- | ---------------------- | ---------------------------------- |
+| `POST /invalidate-impact`          | Dry-run preview        | See what would be deleted          |
+| `POST /invalidate-removed-symbol`  | Delete removed symbol  | Remove deleted function from graph |
+| `POST /invalidate-modified-symbol` | Update modified symbol | Update changed signature           |
+| `POST /invalidate-file-changes`    | Batch invalidation     | Handle all changes at once         |
+| `POST /re-analyze-symbol`          | Single symbol analysis | Deep dive into one function        |
+| `POST /re-analyze-file-changes`    | Batch file analysis    | Re-analyze all changed symbols     |
+| `POST /re-analyze-batch`           | Multi-file analysis    | Process entire changeset           |
 
 **For comprehensive demonstration guide**, see: [`DEMONSTRATION.md`](./DEMONSTRATION.md)
 
 ### Troubleshooting
-
 
 **Issue: Qdrant collection not found**
 

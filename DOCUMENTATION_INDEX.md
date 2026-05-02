@@ -10,11 +10,11 @@
 
 **START HERE** 👇
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[QUICK_REFERENCE.md](./QUICK_REFERENCE.md)** | 3-minute cheat sheet for demo | 5 min |
-| **[DEMONSTRATION.md](./DEMONSTRATION.md)** | Complete 6-phase walkthrough | 20 min |
-| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** | Full status report | 15 min |
+| Document                                       | Purpose                       | Read Time |
+| ---------------------------------------------- | ----------------------------- | --------- |
+| **[QUICK_REFERENCE.md](./QUICK_REFERENCE.md)** | 3-minute cheat sheet for demo | 5 min     |
+| **[DEMONSTRATION.md](./DEMONSTRATION.md)**     | Complete 6-phase walkthrough  | 20 min    |
+| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)**   | Full status report            | 15 min    |
 
 **Recommendation**: Read QUICK_REFERENCE.md before demo, use DEMONSTRATION.md during demo.
 
@@ -22,11 +22,11 @@
 
 ### For Project Setup & Installation
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[README.md](./RepoAlign/README.md)** | Initial setup instructions | 10 min |
-| **requirements.txt** | Python dependencies | 1 min |
-| **docker-compose.yml** | Service definitions | 5 min |
+| Document                               | Purpose                    | Read Time |
+| -------------------------------------- | -------------------------- | --------- |
+| **[README.md](./RepoAlign/README.md)** | Initial setup instructions | 10 min    |
+| **requirements.txt**                   | Python dependencies        | 1 min     |
+| **docker-compose.yml**                 | Service definitions        | 5 min     |
 
 **Recommendation**: Follow README.md for first-time setup.
 
@@ -34,11 +34,11 @@
 
 ### For Understanding the Code
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** | Architecture overview | 10 min |
-| **backend/app/services/** | Implementation files | Varies |
-| **backend/app/api/endpoints/embeddings.py** | REST API endpoints | 20 min |
+| Document                                     | Purpose               | Read Time |
+| -------------------------------------------- | --------------------- | --------- |
+| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** | Architecture overview | 10 min    |
+| **backend/app/services/**                    | Implementation files  | Varies    |
+| **backend/app/api/endpoints/embeddings.py**  | REST API endpoints    | 20 min    |
 
 **Recommendation**: Read PROJECT_STATUS.md architecture section first.
 
@@ -46,10 +46,10 @@
 
 ### For Next Steps & Future Development
 
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[NEXT_STEPS.md](./NEXT_STEPS.md)** | Phases 8.7-8.10 roadmap | 20 min |
-| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** | Known limitations & TODOs | 10 min |
+| Document                                     | Purpose                   | Read Time |
+| -------------------------------------------- | ------------------------- | --------- |
+| **[NEXT_STEPS.md](./NEXT_STEPS.md)**         | Phases 8.7-8.10 roadmap   | 20 min    |
+| **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** | Known limitations & TODOs | 10 min    |
 
 **Recommendation**: Read after supervisor demonstration to plan Phase 8.7+.
 
@@ -58,30 +58,35 @@
 ## 🎯 Quick Links by Use Case
 
 ### "I need to demonstrate this to my supervisor TODAY"
+
 1. Read: [QUICK_REFERENCE.md](./QUICK_REFERENCE.md) (5 min)
 2. Follow: [DEMONSTRATION.md](./DEMONSTRATION.md) - Phases 1-6 (15 min)
 3. Show: Swagger UI responses
 4. Discuss: Talking points in QUICK_REFERENCE.md
 
 ### "I need to set this up on my laptop"
+
 1. Read: [README.md](./RepoAlign/README.md) - Prerequisites & Setup
 2. Run: `docker-compose up -d --build`
 3. Verify: `docker-compose ps`
 4. Access: http://localhost:8000/docs
 
 ### "I need to understand what Phase 8.5 & 8.6 do"
+
 1. Read: [PROJECT_STATUS.md](./PROJECT_STATUS.md) - Phase 8.5 & 8.6 sections
 2. Review: API endpoints section
 3. Watch: Demo output in [DEMONSTRATION.md](./DEMONSTRATION.md)
 4. Check: Code in `backend/app/services/`
 
 ### "I want to continue development (Phase 8.7+)"
+
 1. Read: [NEXT_STEPS.md](./NEXT_STEPS.md) - Full roadmap
 2. Review: [PROJECT_STATUS.md](./PROJECT_STATUS.md) - Known limitations
 3. Plan: Phase 8.7 implementation
 4. Start: Graph updater service
 
 ### "Something is broken, I need to fix it"
+
 1. Check: Docker logs (`docker-compose logs backend`)
 2. Read: [README.md](./RepoAlign/README.md) - Troubleshooting section
 3. Read: [DEMONSTRATION.md](./DEMONSTRATION.md) - Troubleshooting section
@@ -92,6 +97,7 @@
 ## 📋 Document Purposes at a Glance
 
 ### QUICK_REFERENCE.md
+
 ```
 Quick cheat sheet for supervisor demo
 ├─ One-command setup
@@ -104,6 +110,7 @@ Quick cheat sheet for supervisor demo
 ```
 
 ### DEMONSTRATION.md
+
 ```
 Complete step-by-step walkthrough
 ├─ System overview
@@ -117,6 +124,7 @@ Complete step-by-step walkthrough
 ```
 
 ### PROJECT_STATUS.md
+
 ```
 Comprehensive project report
 ├─ Executive summary
@@ -133,6 +141,7 @@ Comprehensive project report
 ```
 
 ### NEXT_STEPS.md
+
 ```
 Roadmap for future phases (8.7-8.10)
 ├─ High-level architecture
@@ -148,6 +157,7 @@ Roadmap for future phases (8.7-8.10)
 ```
 
 ### README.md
+
 ```
 Standard project documentation
 ├─ Project description
@@ -164,6 +174,7 @@ Standard project documentation
 ## 🔄 Recommended Reading Order
 
 ### For New Team Members
+
 1. README.md (get oriented)
 2. PROJECT_STATUS.md (understand architecture)
 3. DEMONSTRATION.md (see it in action)
@@ -171,11 +182,13 @@ Standard project documentation
 5. NEXT_STEPS.md (what's coming)
 
 ### For Supervisor Visit
+
 1. QUICK_REFERENCE.md (5 min)
 2. DEMONSTRATION.md (execute live)
 3. PROJECT_STATUS.md (answer Q&A)
 
 ### For Continuing Development
+
 1. NEXT_STEPS.md (plan next phase)
 2. DEMONSTRATION.md (current state)
 3. PROJECT_STATUS.md (known issues)
@@ -186,24 +199,28 @@ Standard project documentation
 ## 🎓 Key Sections to Know
 
 ### In DEMONSTRATION.md
+
 - **Line-by-line execution commands**: Exact bash code to run
 - **Expected output**: What to expect when things work
 - **Supervisor notes**: What to say during each phase
 - **Troubleshooting**: How to fix common issues
 
 ### In QUICK_REFERENCE.md
+
 - **One-command setup**: If you just need to start
 - **JSON payloads**: Copy-paste ready for API testing
 - **Talking points**: Key things to emphasize
 - **Estimated timeline**: How long the demo takes
 
 ### In PROJECT_STATUS.md
+
 - **Architecture overview**: How everything connects
 - **API reference**: All endpoints documented
 - **Known limitations**: What's not done yet
 - **Performance metrics**: Speed & accuracy numbers
 
 ### In NEXT_STEPS.md
+
 - **Phase 8.7 specification**: Graph update service
 - **Implementation timeline**: 1-2 weeks estimated
 - **Testing strategy**: How to verify each phase
@@ -214,6 +231,7 @@ Standard project documentation
 ## 🚀 Quick Command Reference
 
 ### Start Everything
+
 ```bash
 cd RepoAlign
 docker-compose up -d --build
@@ -221,6 +239,7 @@ sleep 30
 ```
 
 ### Access Services
+
 ```
 FastAPI Swagger UI: http://localhost:8000/docs
 Neo4j Browser:      http://localhost:7474 (neo4j/password)
@@ -228,6 +247,7 @@ Backend API:        http://localhost:8000/api/v1
 ```
 
 ### Check Status
+
 ```bash
 docker-compose ps                    # See all services
 docker-compose logs backend          # Check backend
@@ -235,6 +255,7 @@ docker-compose logs neo4j            # Check database
 ```
 
 ### Run Demonstration
+
 ```bash
 # Follow DEMONSTRATION.md phases 1-6
 # Use QUICK_REFERENCE.md for copy-paste code
@@ -244,14 +265,14 @@ docker-compose logs neo4j            # Check database
 
 ## 📊 Document Statistics
 
-| Document | Lines | Purpose | Audience |
-|----------|-------|---------|----------|
-| QUICK_REFERENCE.md | 300 | Quick demo guide | Supervisor, Demo |
-| DEMONSTRATION.md | 700 | Complete walkthrough | Technical team |
-| PROJECT_STATUS.md | 550 | Full status report | Supervisor, Team |
-| NEXT_STEPS.md | 600 | Future roadmap | Developers |
-| README.md | 250 | Setup guide | Everyone |
-| **Total Documentation** | **~2400** | **All aspects** | **All levels** |
+| Document                | Lines     | Purpose              | Audience         |
+| ----------------------- | --------- | -------------------- | ---------------- |
+| QUICK_REFERENCE.md      | 300       | Quick demo guide     | Supervisor, Demo |
+| DEMONSTRATION.md        | 700       | Complete walkthrough | Technical team   |
+| PROJECT_STATUS.md       | 550       | Full status report   | Supervisor, Team |
+| NEXT_STEPS.md           | 600       | Future roadmap       | Developers       |
+| README.md               | 250       | Setup guide          | Everyone         |
+| **Total Documentation** | **~2400** | **All aspects**      | **All levels**   |
 
 ---
 
@@ -270,22 +291,27 @@ docker-compose logs neo4j            # Check database
 ## 🆘 Can't Find Something?
 
 ### "Where do I find the code for Phase 8.5?"
-→ backend/app/services/graph_invalidator.py + _integration.py  
+
+→ backend/app/services/graph_invalidator.py + \_integration.py  
 → See PROJECT_STATUS.md "Code Components Delivered"
 
 ### "How do I test Phase 8.6?"
+
 → DEMONSTRATION.md Phase 6  
 → QUICK_REFERENCE.md Step 5
 
 ### "What should I show during demo?"
+
 → QUICK_REFERENCE.md "Talking Points"  
 → DEMONSTRATION.md "Supervisor Notes"
 
 ### "When do I start Phase 8.7?"
+
 → NEXT_STEPS.md "Phase 8.7: Targeted Graph Update"  
 → Recommended: After supervisor feedback
 
 ### "Something is broken"
+
 → README.md Troubleshooting  
 → DEMONSTRATION.md Troubleshooting  
 → docker-compose logs
@@ -302,7 +328,7 @@ You'll know you're ready when you can:
 ✅ Explain what Phase 8.6 does (metadata extraction)  
 ✅ Run all 6 demo phases without errors  
 ✅ Answer supervisor Q&A with talking points  
-✅ Describe next steps (Phase 8.7+) clearly  
+✅ Describe next steps (Phase 8.7+) clearly
 
 ---
 

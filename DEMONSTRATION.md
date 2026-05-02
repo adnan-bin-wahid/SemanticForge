@@ -33,11 +33,13 @@ RepoAlign is a semantic repository assistant that:
 ### Phase 8.5 & 8.6 (Today's Demo)
 
 **Phase 8.5: Graph Invalidation Service**
+
 - Surgically removes stale code symbols from the knowledge graph
 - Handles removed and modified symbols
 - Demonstrates: DELETE operations with cascade relationships
 
 **Phase 8.6: Targeted Re-Analysis Service**
+
 - Re-runs static analysis on ONLY changed symbols
 - Extracts complete metadata: signature, parameters, complexity, docstring
 - Demonstrates: Smart incremental analysis without re-analyzing entire codebase
@@ -56,6 +58,7 @@ Before the demonstration, ensure:
 - [ ] Internet connection (for pulling Docker images on first run)
 
 **Verify installations:**
+
 ```bash
 docker --version
 docker-compose --version
@@ -79,6 +82,7 @@ docker-compose ps
 ```
 
 **Expected Output:**
+
 ```
 No running services
 ```
@@ -97,6 +101,7 @@ docker-compose ps
 ```
 
 **Expected Output:**
+
 ```
 NAME                COMMAND                  STATUS
 repoalign-backend-1      "uvicorn app.main..."  Up X minutes
@@ -113,12 +118,15 @@ curl -s http://localhost:8000/docs | head -20
 ```
 
 **Expected Output:**
+
 ```html
 <!DOCTYPE html>
 <html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  ...
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ...
+  </head>
+</html>
 ```
 
 If successful, the FastAPI Swagger UI is ready.
@@ -149,7 +157,7 @@ class Calculator:
     \"\"\"Calculator class for basic operations.\"\"\"
     def __init__(self):
         self.result = 0
-    
+
     def compute(self):
         \"\"\"Compute the result.\"\"\"
         pass
@@ -163,11 +171,13 @@ echo '✓ Repository initialized'
 ```
 
 **What Happens:**
+
 - Creates `test_module.py` with 3 symbols: `add()`, `multiply()`, `Calculator`
 - Commits to git
 - Shows clean state for demonstration
 
 **Expected Output:**
+
 ```
 ✓ Test file created and committed
 ✓ Repository initialized
@@ -209,6 +219,7 @@ EOF
 ```
 
 **What to Expect:**
+
 ```
 PHASE 2: Current Codebase Snapshot
 ======================================================================
@@ -252,7 +263,7 @@ class Calculator:
     \"\"\"Calculator class for basic operations.\"\"\"
     def __init__(self):
         self.result = 0
-    
+
     def compute(self):
         \"\"\"Compute the result.\"\"\"
         pass
@@ -266,6 +277,7 @@ echo '  • power() was ADDED'
 ```
 
 **What Changed:**
+
 - ✏️ **MODIFIED**: `add()` - signature changed from 2 to 3 parameters
 - ❌ **REMOVED**: `multiply()` - function deleted
 - ✅ **ADDED**: `power()` - new function added
@@ -324,15 +336,15 @@ response = requests.get(
 
 if response.status_code == 200:
     data = response.json()
-    
+
     print(f"\n  ADDED ({len(data['added'])}):")
     for sym in data['added']:
         print(f"    ✅ {sym['symbol']} ({sym['type']})")
-    
+
     print(f"\n  REMOVED ({len(data['removed'])}):")
     for sym in data['removed']:
         print(f"    ❌ {sym['symbol']} ({sym['type']})")
-    
+
     print(f"\n  MODIFIED ({len(data['modified'])}):")
     for sym in data['modified']:
         print(f"    ✏️  {sym['symbol']} ({sym['type']})")
@@ -345,6 +357,7 @@ EOF
 ```
 
 **Expected Output:**
+
 ```
 ======================================================================
 PHASE 4: Detect Changes via Git Diff
@@ -512,6 +525,7 @@ EOF
 ```
 
 **Expected Output:**
+
 ```
 ======================================================================
 PHASE 5: Invalidate Stale Symbols (Phase 8.5)
@@ -566,6 +580,7 @@ PHASE 5 SUMMARY:
 ```
 
 **Supervisor Notes:**
+
 - "This is **surgical deletion** - only removes what changed, keeps everything else"
 - "In real projects with many dependencies, cascade deletion would clean up relationships too"
 - "Signatures are updated, so if other code calls add(a, b), we'd flag that as incompatible"
@@ -614,23 +629,23 @@ response = requests.post(
 if response.status_code == 200:
     result = response.json()
     symbol = result.get("symbol", {})
-    
+
     print(f"\n✓ Re-analyzed: {symbol['symbol_name']}")
     print(f"\n  Basic Info:")
     print(f"    • Type: {symbol['symbol_type']}")
     print(f"    • Location: lines {symbol['start_line']}-{symbol['end_line']}")
     print(f"    • Lines of Code: {symbol['lines_of_code']}")
-    
+
     print(f"\n  Signature & Documentation:")
     print(f"    • Signature: {symbol['signature']}")
     print(f"    • Docstring: {symbol['docstring']}")
-    
+
     print(f"\n  Parameters (EXTRACTED):")
     for param in symbol.get('parameters', []):
         print(f"    • {param['name']}")
         print(f"      - Type annotation: {param['annotation']}")
         print(f"      - Default value: {param['default_value']}")
-    
+
     print(f"\n  Analysis Metrics:")
     print(f"    • Cyclomatic Complexity: {symbol['cyclomatic_complexity']}")
     print(f"    • Imports Used: {symbol['imports_used']}")
@@ -657,24 +672,24 @@ response = requests.post(
 
 if response.status_code == 200:
     result = response.json()
-    
+
     print(f"\n✓ Re-analysis complete:")
     print(f"  Status: {result['status']}")
     print(f"  File: {result['file_path']}")
-    
+
     print(f"\n  Added Symbols ({len(result['added_symbols'])}):")
     for sym in result['added_symbols']:
         print(f"    ✅ {sym['symbol_name']} ({sym['symbol_type']})")
         print(f"       Signature: {sym['signature']}")
         print(f"       Docstring: {sym['docstring']}")
         print(f"       Complexity: {sym['cyclomatic_complexity']}")
-    
+
     print(f"\n  Modified Symbols ({len(result['modified_symbols'])}):")
     for sym in result['modified_symbols']:
         print(f"    ✏️  {sym['symbol_name']} ({sym['symbol_type']})")
         print(f"       Old signature: def add(a, b)")
         print(f"       New signature: {sym['signature']}")
-    
+
     print(f"\n  Errors: {result['error_count']}")
 
 # Test 3: Batch re-analysis
@@ -702,7 +717,7 @@ response = requests.post(
 
 if response.status_code == 200:
     result = response.json()
-    
+
     print(f"\n✓ Batch re-analysis complete:")
     print(f"  Status: {result['status']}")
     print(f"  Total files: {result['total_files']}")
@@ -721,6 +736,7 @@ EOF
 ```
 
 **Expected Output:**
+
 ```
 ======================================================================
 PHASE 6: Re-analyze Changed Symbols (Phase 8.6)
@@ -813,6 +829,7 @@ PHASE 6 SUMMARY:
 ```
 
 **Supervisor Notes:**
+
 - "Phase 8.6 is **incremental** - it doesn't re-scan the entire codebase"
 - "For a 10,000-file project with 100 file changes, it only analyzes those 100 files"
 - "All metadata needed for graph update is extracted here"
@@ -828,6 +845,7 @@ PHASE 6 SUMMARY:
 Show all 6 phases running sequentially with ✓ checkmarks
 
 **2. Docker Services Running**
+
 ```bash
 docker-compose ps
 ```
@@ -903,26 +921,34 @@ docker-compose up -d
 ## 📝 Talking Points for Supervisor
 
 ### Problem Statement
+
 "Modern repositories have thousands of symbols. When code changes, developers need to update documentation, fix tests, and update dependent code. Manually tracking all these changes is error-prone."
 
 ### Solution Overview
+
 "RepoAlign uses 3 key techniques:
+
 1. **Static Analysis (Phase 2)**: Parse every file, extract all symbols
 2. **Semantic Graph (Phase 3)**: Build knowledge graph showing relationships
 3. **Incremental Maintenance (Phases 8.1-8.6)**: When code changes, automatically invalidate stale data and re-analyze only what changed"
 
 ### Today's Demo (Phases 8.5 & 8.6)
+
 "When a developer changes code:
+
 - **Phase 8.5** removes old symbols from the graph (stays consistent)
 - **Phase 8.6** extracts complete metadata for new symbols (ready for update)"
 
 ### Key Achievement
+
 "The entire pipeline is **incremental** and **surgical**:
+
 - Only analyzes changed files
 - Only invalidates changed symbols
 - Scales to large projects"
 
 ### Future Work (Phase 8.7+)
+
 "Next: Write re-analyzed data back to graph, then automate the full pipeline."
 
 ---
@@ -962,6 +988,7 @@ echo "===== DEMONSTRATION COMPLETE ====="
 ## 📞 Contact & Support
 
 For questions during demonstration:
+
 - Check Docker logs: `docker-compose logs -f backend`
 - Check Neo4j: `http://localhost:7474` (neo4j/password)
 - Check Swagger API: `http://localhost:8000/docs`

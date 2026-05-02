@@ -40,9 +40,11 @@
 ## 📋 Phase 8.7: Targeted Graph Update
 
 ### Purpose
+
 Write Phase 8.6 re-analyzed data back to Neo4j, creating/updating nodes and relationships.
 
 ### Input
+
 ```python
 ReAnalyzedSymbol(
     symbol_name: str,
@@ -61,6 +63,7 @@ ReAnalyzedSymbol(
 ### Operations
 
 #### Create New Symbol Nodes
+
 ```cypher
 CREATE (sym:Function {
   name: "add",
@@ -73,6 +76,7 @@ CREATE (sym:Function {
 ```
 
 #### Create Parameter Nodes
+
 ```cypher
 CREATE (param:Parameter {
   name: "a",
@@ -82,12 +86,14 @@ CREATE (sym)-[:HAS_PARAMETER]->(param)
 ```
 
 #### Create Call Relationships
+
 ```cypher
 CREATE (sym)-[:CALLS]->(other_func)
 CREATE (sym)-[:IMPORTS]->(module)
 ```
 
 ### Service Layer: `graph_updater.py`
+
 ```python
 class GraphUpdater:
     def create_symbol_node(self, symbol: ReAnalyzedSymbol) -> dict
@@ -98,6 +104,7 @@ class GraphUpdater:
 ```
 
 ### Integration Layer: `graph_updater_integration.py`
+
 ```python
 def update_symbol(symbol: ReAnalyzedSymbol) -> dict:
     # Thread-safe wrapper
@@ -109,6 +116,7 @@ def update_batch(symbols: List[ReAnalyzedSymbol]) -> dict:
 ```
 
 ### REST Endpoints
+
 ```
 POST /api/v1/update-symbol
     Input: ReAnalyzedSymbol
@@ -120,6 +128,7 @@ POST /api/v1/update-batch
 ```
 
 ### Expected Response
+
 ```json
 {
   "status": "success",
@@ -131,6 +140,7 @@ POST /api/v1/update-batch
 ```
 
 ### Implementation Priority
+
 **High** - Directly uses Phase 8.6 output, completes the write-back cycle
 
 ---
@@ -138,9 +148,11 @@ POST /api/v1/update-batch
 ## 🔄 Phase 8.8: Maintenance Worker
 
 ### Purpose
+
 Background worker that continuously processes the change queue (Phase 8.3) through the full 8.5→8.6→8.7 pipeline.
 
 ### Architecture
+
 ```
 Change Queue (Phase 8.3)
         ↓
@@ -155,19 +167,20 @@ Status Log & Monitoring
 ```
 
 ### Service: `maintenance_worker.py`
+
 ```python
 class MaintenanceWorker:
     def __init__(self, poll_interval: int = 5):
         self.poll_interval = poll_interval  # Check queue every 5 seconds
         self.running = False
-    
+
     def start(self):
         # Start background thread
         # Continuously: check queue → process batch → update graph
-    
+
     def stop(self):
         # Gracefully shutdown
-    
+
     def process_batch(self, changes: List[FileChange]) -> dict:
         # 1. Invalidate removed/modified symbols (Phase 8.5)
         # 2. Re-analyze all changed symbols (Phase 8.6)
@@ -176,6 +189,7 @@ class MaintenanceWorker:
 ```
 
 ### Configuration
+
 ```python
 MAINTENANCE_CONFIG = {
     "poll_interval": 5,  # Check queue every 5 seconds
@@ -187,6 +201,7 @@ MAINTENANCE_CONFIG = {
 ```
 
 ### Monitoring Endpoints
+
 ```
 GET /api/v1/maintenance-status
     Output: {running, files_processed, symbols_processed, errors, uptime}
@@ -202,6 +217,7 @@ POST /api/v1/maintenance-stop
 ```
 
 ### Expected Flow
+
 ```
 1. File changes detected in test_module.py
 2. Change queued in Phase 8.3
@@ -214,6 +230,7 @@ POST /api/v1/maintenance-stop
 ```
 
 ### Implementation Priority
+
 **Medium** - Orchestration layer, nice to have for automation
 
 ---
@@ -221,9 +238,11 @@ POST /api/v1/maintenance-stop
 ## 🎮 Phase 8.9: Agent Control
 
 ### Purpose
+
 Start/stop endpoints and system-level control for the maintenance pipeline.
 
 ### REST Endpoints
+
 ```
 POST /api/v1/start-maintenance
     Start all background workers
@@ -251,6 +270,7 @@ POST /api/v1/restart-system
 ```
 
 ### Configuration Endpoints
+
 ```
 GET /api/v1/config/maintenance
     Get current maintenance config
@@ -262,6 +282,7 @@ PUT /api/v1/config/maintenance
 ```
 
 ### Implementation Priority
+
 **Medium** - Control layer for operational management
 
 ---
@@ -269,9 +290,11 @@ PUT /api/v1/config/maintenance
 ## ⚙️ Phase 8.10: Full Loop / Autonomous Sync
 
 ### Purpose
+
 Complete end-to-end automation: code changes trigger full pipeline without manual intervention.
 
 ### Architecture
+
 ```
 User commits code
         ↓
@@ -293,6 +316,7 @@ Graph is now fully synchronized ✅
 ```
 
 ### Telemetry & Monitoring
+
 ```python
 class PipelineMetrics:
     def __init__(self):
@@ -300,17 +324,18 @@ class PipelineMetrics:
         self.avg_cycle_time = 0.0
         self.total_symbols_processed = 0
         self.error_rate = 0.0
-    
+
     def record_cycle(self, duration: float, symbols: int, errors: int):
         # Update metrics
         pass
-    
+
     def get_report(self) -> dict:
         # Return {cycles, avg_time, symbols_processed, error_rate}
         pass
 ```
 
 ### Endpoints
+
 ```
 GET /api/v1/pipeline-metrics
     Output: {total_cycles, avg_cycle_time, symbols_processed, error_rate}
@@ -324,6 +349,7 @@ POST /api/v1/test-full-pipeline
 ```
 
 ### Expected User Experience
+
 ```
 1. Developer edits test_module.py in VS Code
 2. Saves the file
@@ -338,6 +364,7 @@ POST /api/v1/test-full-pipeline
 ```
 
 ### Implementation Priority
+
 **Low** - Final integration, but adds tremendous value
 
 ---
@@ -345,6 +372,7 @@ POST /api/v1/test-full-pipeline
 ## 🛠️ Implementation Sequence
 
 ### Recommended Order
+
 1. **Phase 8.7** (1-2 days)
    - Depends on: Phase 8.6 ✅
    - Unblocks: Phases 8.8, 8.10
@@ -366,10 +394,12 @@ POST /api/v1/test-full-pipeline
    - Complexity: Low-Medium
 
 ### Parallel Work
+
 - Can work on Phase 8.7 documentation while Phase 8.5/8.6 are being tested
 - Phase 8.9 can be designed in parallel with 8.8 implementation
 
 ### Total Estimated Time
+
 - **8.7**: 1-2 days
 - **8.8**: 1-2 days
 - **8.9**: 0.5-1 day
@@ -383,56 +413,60 @@ POST /api/v1/test-full-pipeline
 ## 📊 Testing Strategy
 
 ### Phase 8.7 Tests
+
 ```python
 def test_create_symbol_node():
     # Create a new symbol, verify node in Neo4j
-    
+
 def test_update_symbol_node():
     # Update existing symbol, verify properties changed
-    
+
 def test_create_relationships():
     # Add relationships, verify in Neo4j
-    
+
 def test_batch_update():
     # Update 100 symbols, verify all succeed
 ```
 
 ### Phase 8.8 Tests
+
 ```python
 def test_worker_polling():
     # Add changes to queue, verify worker processes them
-    
+
 def test_batch_processing():
     # 50 changes, verify all phases execute
-    
+
 def test_error_handling():
     # Invalid changes, verify graceful handling
-    
+
 def test_worker_restart():
     # Stop/start worker, verify state preserved
 ```
 
 ### Phase 8.9 Tests
+
 ```python
 def test_start_stop():
     # Start/stop maintenance, verify state changes
-    
+
 def test_system_health():
     # Check health endpoint, verify all phases ok
-    
+
 def test_config_update():
     # Change config, verify worker uses new values
 ```
 
 ### Phase 8.10 Tests
+
 ```python
 def test_full_pipeline():
     # End-to-end: file change → graph update
     # Measure latency, verify accuracy
-    
+
 def test_large_changeset():
     # 100+ files changed, verify handles gracefully
-    
+
 def test_telemetry():
     # Verify metrics are recorded and accurate
 ```
@@ -442,10 +476,12 @@ def test_telemetry():
 ## 📚 Database Schema Updates
 
 ### Nodes (Already Defined)
+
 - `File`, `Function`, `Class`, `Module`, `Repository`
 - `Parameter`, `Import`, `Call`
 
 ### Relationships (Phase 8.7 will use)
+
 ```
 Function -[:HAS_PARAMETER]-> Parameter
 Function -[:CALLS]-> Function | Class
@@ -457,6 +493,7 @@ Module -[:IMPORTS]-> Module | Function
 ```
 
 ### Properties to Store (Phase 8.6 extracts, 8.7 writes)
+
 ```
 Function {
   signature: String,
@@ -485,12 +522,14 @@ Call {
 ## 🎓 Learning Resources
 
 ### Required Knowledge
+
 - Neo4j Cypher Query Language (for Phase 8.7)
 - Python threading/async patterns (for Phase 8.8)
 - REST API design (for Phase 8.9)
 - System monitoring & telemetry (for Phase 8.10)
 
 ### Recommended Reading
+
 1. Neo4j Documentation: `CREATE`, `MERGE`, `SET`
 2. Python: `threading`, `queue`, `logging`
 3. FastAPI: Background tasks, lifecycle events
