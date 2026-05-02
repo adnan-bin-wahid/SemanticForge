@@ -30,7 +30,22 @@ interface RepoAlignConfig {
   autoSyncOnSave: boolean;
 }
 
+interface ReadinessService {
+  status: "ok" | "error" | "unknown";
+  message: string;
+  collections?: number;
+  models?: string[];
+}
+
+interface ReadinessResponse {
+  status: "ready" | "not_ready";
+  ready: boolean;
+  model: string;
+  services: Record<string, ReadinessService>;
+}
+
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
+const outputChannel = vscode.window.createOutputChannel("RepoAlign");
 
 function getRepoAlignConfig(): RepoAlignConfig {
   const config = vscode.workspace.getConfiguration("repoalign");
@@ -268,6 +283,70 @@ function reportWorkspaceValidation(result: WorkspaceValidationResult): void {
   vscode.window.showWarningMessage(result.message);
 }
 
+function writeReadinessReport(readiness: ReadinessResponse): void {
+  outputChannel.clear();
+  outputChannel.appendLine("RepoAlign Backend Readiness");
+  outputChannel.appendLine(`Overall: ${readiness.status}`);
+  outputChannel.appendLine(`Model: ${readiness.model}`);
+  outputChannel.appendLine("");
+
+  for (const [name, service] of Object.entries(readiness.services)) {
+    outputChannel.appendLine(`${name}: ${service.status}`);
+    outputChannel.appendLine(`  ${service.message}`);
+
+    if (typeof service.collections === "number") {
+      outputChannel.appendLine(`  collections: ${service.collections}`);
+    }
+
+    if (service.models?.length) {
+      outputChannel.appendLine(`  models: ${service.models.join(", ")}`);
+    }
+  }
+}
+
+async function runBackendReadinessCheck(): Promise<ReadinessResponse | undefined> {
+  const config = getRepoAlignConfig();
+
+  try {
+    const response = await axios.get<ReadinessResponse>(
+      `${config.backendUrl}/readiness`,
+      {
+        params: {
+          model: config.modelName,
+        },
+        timeout: 10000,
+      },
+    );
+    const readiness = response.data;
+    writeReadinessReport(readiness);
+
+    if (readiness.ready) {
+      vscode.window.showInformationMessage("RepoAlign backend is ready.");
+    } else {
+      const failed = Object.entries(readiness.services)
+        .filter(([, service]) => service.status !== "ok")
+        .map(([name, service]) => `${name}: ${service.message}`)
+        .join(" | ");
+      vscode.window.showWarningMessage(`RepoAlign backend is not ready. ${failed}`);
+      outputChannel.show(true);
+    }
+
+    return readiness;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown readiness check error.";
+    outputChannel.clear();
+    outputChannel.appendLine("RepoAlign Backend Readiness");
+    outputChannel.appendLine("Overall: not_ready");
+    outputChannel.appendLine(`FastAPI/backend request failed: ${message}`);
+    outputChannel.show(true);
+    vscode.window.showErrorMessage(
+      `RepoAlign backend is not reachable at ${config.backendUrl}.`,
+    );
+    return undefined;
+  }
+}
+
 function getWelcomeHtml(webview: vscode.Webview): string {
   const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -367,7 +446,7 @@ function getWelcomeHtml(webview: vscode.Webview): string {
     <section class="steps">
       <div class="step">
         <strong>1. Check backend</strong>
-        Confirm the local FastAPI backend is reachable.
+        Confirm FastAPI, Neo4j, Qdrant, and Ollama/model are ready.
       </div>
       <div class="step">
         <strong>2. Analyze workspace</strong>
@@ -385,7 +464,7 @@ function getWelcomeHtml(webview: vscode.Webview): string {
 
     <div class="actions">
       <button data-command="validate">Validate Workspace</button>
-      <button data-command="health">Health Check</button>
+      <button data-command="readiness">Backend Readiness</button>
       <button data-command="analyze">Analyze Workspace</button>
       <button data-command="generate">Generate Patch</button>
       <button class="secondary" data-command="hide">Do Not Show Again</button>
@@ -420,6 +499,9 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
     switch (message.command) {
       case "validate":
         await vscode.commands.executeCommand("repoalign.validateWorkspace");
+        break;
+      case "readiness":
+        await vscode.commands.executeCommand("repoalign.checkReadiness");
         break;
       case "health":
         await vscode.commands.executeCommand("repoalign.healthCheck");
@@ -466,23 +548,16 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  const checkReadinessDisposable = vscode.commands.registerCommand(
+    "repoalign.checkReadiness",
+    async () => runBackendReadinessCheck(),
+  );
+
   // Command for backend health check
   let healthCheckDisposable = vscode.commands.registerCommand(
     "repoalign.healthCheck",
     async () => {
-      try {
-        const response = await axios.get(`${getRepoAlignConfig().backendUrl}/health`);
-        if (response.data.status === "ok") {
-          vscode.window.showInformationMessage("RepoAlign Backend is running!");
-        } else {
-          vscode.window.showErrorMessage("RepoAlign Backend status is not ok.");
-        }
-      } catch (error) {
-        vscode.window.showErrorMessage(
-          "Failed to connect to RepoAlign Backend. Is it running?",
-        );
-        console.error(error);
-      }
+      await runBackendReadinessCheck();
     },
   );
 
@@ -853,6 +928,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     showWelcomeDisposable,
     validateWorkspaceDisposable,
+    checkReadinessDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,

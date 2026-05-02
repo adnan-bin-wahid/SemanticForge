@@ -14,6 +14,7 @@
     "workspaceContains:**/*.py",
     "onCommand:repoalign.showWelcome",
     "onCommand:repoalign.validateWorkspace",
+    "onCommand:repoalign.checkReadiness",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -28,6 +29,10 @@
       {
         "command": "repoalign.validateWorkspace",
         "title": "RepoAlign: Validate Workspace"
+      },
+      {
+        "command": "repoalign.checkReadiness",
+        "title": "RepoAlign: Backend Readiness Check"
       },
       {
         "command": "repoalign.healthCheck",
