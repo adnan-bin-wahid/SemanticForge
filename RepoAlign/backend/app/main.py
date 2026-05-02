@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from .api.endpoints import health, ingestion, graph, build_graph, embeddings, validation
+from .api.endpoints import health, ingestion, graph, build_graph, embeddings, validation, maintenance, agent_control
 from .db import neo4j_driver, qdrant_client
 from .services.graph_expansion import GraphExpansion
 from .services.context_retriever import ContextRetriever
@@ -27,4 +27,6 @@ app.include_router(graph.router, prefix="/api/v1")
 app.include_router(build_graph.router, prefix="/api/v1")
 app.include_router(embeddings.router, prefix="/api/v1")
 app.include_router(validation.router, prefix="/api/v1")
+app.include_router(maintenance.router, prefix="/api/v1")
+app.include_router(agent_control.router, prefix="/api/v1")
 
