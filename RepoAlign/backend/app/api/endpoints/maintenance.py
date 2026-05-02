@@ -6,6 +6,7 @@ These endpoints manage the graph invalidation and targeted re-analysis/update cy
 - Sub-phase 8.6: Targeted Re-Analysis  
 - Sub-phase 8.7: Targeted Graph Update
 - Sub-phase 8.8: Maintenance Worker (autonomous background process)
+- Sub-phase 8.10: Full Maintenance Loop (extension-driven live sync)
 """
 
 from fastapi import APIRouter, HTTPException
@@ -15,7 +16,7 @@ from app.services.targeted_graph_updater import TargetedGraphUpdater
 from app.services.invalidation_service import InvalidationService
 from app.services.maintenance_worker import get_maintenance_worker
 from app.services.change_queue import get_change_queue
-from app.services.re_analyzer import ReAnalyzer
+from app.services.full_maintenance_loop import get_full_maintenance_loop
 from app.db.neo4j_driver import get_neo4j_driver
 from app.models.code_structures import FileReport
 
@@ -167,58 +168,38 @@ async def workspace_file_change(request: WorkspaceFileChangeRequest):
     """
     try:
         driver = get_neo4j_driver()
-        invalidator = InvalidationService(driver)
-
-        change_type = request.change_type.lower()
-        if change_type == "deleted":
-            invalidation_stats = await invalidator.invalidate_file(request.file_path)
-            return {
-                "status": "success",
-                "change_type": change_type,
-                "file_path": request.file_path,
-                "invalidation": invalidation_stats,
-            }
-
-        if change_type not in {"added", "modified"}:
-            raise HTTPException(
-                status_code=400,
-                detail="change_type must be one of: added, modified, deleted",
-            )
-
-        if request.content is None:
-            raise HTTPException(
-                status_code=400,
-                detail="content is required for added or modified files",
-            )
-
-        re_analyzer = ReAnalyzer()
-        file_report = re_analyzer.analyze_file(request.file_path, request.content)
-        if file_report is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Could not analyze Python file: {request.file_path}",
-            )
-
-        updater = TargetedGraphUpdater(driver)
-        result = await updater.invalidate_and_update_file(
+        loop = get_full_maintenance_loop(driver)
+        return await loop.process_file_change(
             file_path=request.file_path,
-            file_report=file_report,
-            invalidation_service=invalidator,
+            change_type=request.change_type,
+            content=request.content,
+            workspace_id=request.workspace_id,
         )
-
-        return {
-            "status": "success",
-            "change_type": change_type,
-            "file_path": request.file_path,
-            "workspace_id": request.workspace_id,
-            "data": result,
-        }
-    except HTTPException:
-        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process workspace file change: {str(e)}",
+        )
+
+
+@router.get("/full-maintenance-loop/status", tags=["Maintenance", "Phase 8.10"])
+async def full_maintenance_loop_status():
+    """
+    Get Phase 8.10 live-sync status and counters.
+
+    This validates the production maintenance path where VS Code file save
+    events trigger graph updates without backend filesystem assumptions.
+    """
+    try:
+        driver = get_neo4j_driver()
+        loop = get_full_maintenance_loop(driver)
+        return loop.get_status()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get full maintenance loop status: {str(e)}",
         )
 
 
