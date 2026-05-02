@@ -184,7 +184,7 @@ This document provides an extremely granular breakdown of the development of the
   - **Task:** Implement a function that takes a list of retrieved symbols and expands the context by querying the Neo4j graph for their immediate neighbors (e.g., functions they call, or functions that call them).
   - **Outcome:** A function that can enrich the initial retrieval results with directly related code from the knowledge graph.
 
-- **Sub-pPhase 4.10: Full Retrieval Endpoint**
+- **Sub-phase 4.10: Full Retrieval Endpoint**
   - **Task:** Create a final retrieval endpoint (`/retrieve-context`) that orchestrates the entire hybrid search and graph expansion process.
   - **Outcome:** A single API endpoint that takes a user instruction and returns a rich, structured context containing the most relevant code snippets and their immediate graph neighbors.
 
@@ -375,92 +375,325 @@ This document provides an extremely granular breakdown of the development of the
 
 ---
 
-## **Phase 9: Learned Query Planner**
+## **Phase 9: Production Extension Onboarding and Workspace Management**
 
-**Main Goal:** Upgrade the retrieval system with a fine-tuned model that translates natural language instructions into precise graph queries.
+**Main Goal:** Turn the existing extension/backend prototype into a usable one-user product that can be installed, configured, and run against any Python Git workspace without hard-coded project paths.
 
-- **Sub-phase 9.1: Graph Query DSL Definition**
+- **Sub-phase 9.1: First-Run Activation Flow**
+  - **Task:** Add a first-run command or welcome panel that appears when the extension opens in a Python workspace.
+  - **Outcome:** A new user immediately sees how to start RepoAlign instead of needing to know hidden commands.
+
+- **Sub-phase 9.2: Workspace Validation**
+  - **Task:** Detect whether the opened folder is a Git repository and contains Python source files.
+  - **Outcome:** The extension can clearly report "ready", "not a Git repo", or "no Python files found" before analysis starts.
+
+- **Sub-phase 9.3: User Configuration Model**
+  - **Task:** Add VS Code settings for backend URL, excluded folders, similarity threshold, model name, validation mode, and automatic sync on save.
+  - **Outcome:** RepoAlign can be adapted to a user's machine and project without editing source code.
+
+- **Sub-phase 9.4: Exclusion and File Filtering**
+  - **Task:** Apply production-safe ignore rules for `.git`, `.venv`, `venv`, `__pycache__`, `node_modules`, `dist`, `build`, coverage outputs, generated files, and user-configured globs.
+  - **Outcome:** Initial indexing and live sync avoid noisy or generated files.
+
+- **Sub-phase 9.5: Backend Readiness Check**
+  - **Task:** Implement a single extension-side readiness check that verifies FastAPI, Neo4j, Qdrant, and Ollama/model availability.
+  - **Outcome:** The user sees a precise setup problem instead of a generic "backend failed" message.
+
+- **Sub-phase 9.6: Initial Repository Indexing Command**
+  - **Task:** Refine `RepoAlign: Analyze Workspace` into a robust indexing workflow with progress, cancellation, file counts, and error reporting.
+  - **Outcome:** A user can build the first semantic graph from VS Code with confidence.
+
+- **Sub-phase 9.7: Indexing State Persistence**
+  - **Task:** Store workspace metadata such as last indexed time, indexed file count, backend URL, and graph status in VS Code workspace state.
+  - **Outcome:** The extension knows whether a workspace is already indexed and can guide the next action.
+
+- **Sub-phase 9.8: Rebuild and Reset Commands**
+  - **Task:** Add commands to rebuild graph, clear graph/index data for the current workspace, and re-index embeddings.
+  - **Outcome:** Demo and user recovery workflows are possible without manually opening Swagger or Neo4j.
+
+- **Sub-phase 9.9: Production Error Notifications**
+  - **Task:** Replace silent console-only failures with actionable notifications and an output channel named `RepoAlign`.
+  - **Outcome:** Users can diagnose setup, indexing, generation, and sync problems inside VS Code.
+
+- **Sub-phase 9.10: Onboarding Completion Test**
+  - **Task:** Create a manual and scripted smoke test for installing the extension, opening a Python repo, checking backend readiness, indexing, and viewing graph status.
+  - **Outcome:** Phase 9 proves one user can start the system from scratch.
+
+---
+
+## **Phase 10: Commit-Time Staged Diff Analysis**
+
+**Main Goal:** Implement the core proposed workflow from the project overview: analyze staged code during commit, compare it with repository patterns, and pause the commit only when meaningful inconsistencies are found.
+
+- **Sub-phase 10.1: Git Extension Integration**
+  - **Task:** Use the VS Code Git extension API or local Git commands to detect staged files and staged diffs.
+  - **Outcome:** RepoAlign can inspect exactly what the user is about to commit.
+
+- **Sub-phase 10.2: Staged Diff Parser**
+  - **Task:** Parse staged unified diffs into changed files, changed hunks, and affected Python symbols.
+  - **Outcome:** The backend receives structured staged-change data instead of raw unorganized patches.
+
+- **Sub-phase 10.3: Changed Symbol Extraction**
+  - **Task:** Map staged hunks to functions/classes using current file content and AST line ranges.
+  - **Outcome:** RepoAlign can analyze only the code blocks that matter for a commit.
+
+- **Sub-phase 10.4: Staged Context Payload**
+  - **Task:** Define Pydantic and TypeScript request models for staged file path, old/new content, changed symbol metadata, and workspace identity.
+  - **Outcome:** The frontend/backend contract for commit-time analysis is explicit and testable.
+
+- **Sub-phase 10.5: Commit Analysis Endpoint**
+  - **Task:** Add a backend endpoint such as `/analyze-staged-changes` that receives staged changes and orchestrates retrieval, comparison, validation, and recommendation.
+  - **Outcome:** The backend has one production API for the proposed commit workflow.
+
+- **Sub-phase 10.6: Pre-Commit Trigger Command**
+  - **Task:** Add a VS Code command `RepoAlign: Commit With Analysis` that runs staged analysis before calling Git commit.
+  - **Outcome:** The final demo can show a controlled commit-time gate without needing low-level Git hook installation first.
+
+- **Sub-phase 10.7: Optional Git Hook Installer**
+  - **Task:** Add a command to install/remove a local pre-commit hook that calls RepoAlign analysis.
+  - **Outcome:** Users who want automatic enforcement can enable it per repository.
+
+- **Sub-phase 10.8: Normal Commit Pass-Through**
+  - **Task:** If no meaningful issue is found, allow the commit to proceed normally and record a successful analysis event.
+  - **Outcome:** RepoAlign does not interrupt clean commits.
+
+- **Sub-phase 10.9: Commit Blocking Result Model**
+  - **Task:** Define a structured result containing severity, affected file, affected symbol, reason, matched pattern, suggested fix, and validation status.
+  - **Outcome:** The review UI can present precise, explainable findings.
+
+- **Sub-phase 10.10: Commit-Time End-to-End Test**
+  - **Task:** Build a demo test where a staged Python change is analyzed, either passes or opens review, and then commits after resolution.
+  - **Outcome:** The proposed editor-to-commit workflow is demonstrable.
+
+---
+
+## **Phase 11: Repository Pattern Learning and Inconsistency Detection**
+
+**Main Goal:** Detect convention drift by comparing staged code against similar existing repository implementations, using the graph and embeddings already built in earlier phases.
+
+- **Sub-phase 11.1: Pattern Candidate Retrieval**
+  - **Task:** For each changed symbol, retrieve similar functions/classes using hybrid search, embeddings, and graph neighbors.
+  - **Outcome:** RepoAlign can identify "this new code resembles these existing repository patterns."
+
+- **Sub-phase 11.2: Pattern Summary Builder**
+  - **Task:** Summarize retrieved examples into reusable conventions such as error handling style, validation flow, response structure, service-layer usage, and type contracts.
+  - **Outcome:** The system has explainable repository-specific patterns instead of opaque search results.
+
+- **Sub-phase 11.3: Structural Comparison Rules**
+  - **Task:** Implement rule checks for imports used, called helper/service functions, function signature shape, return style, exception behavior, and layer boundaries.
+  - **Outcome:** RepoAlign can detect schematic inconsistency without relying only on LLM judgment.
+
+- **Sub-phase 11.4: Semantic Similarity With Structural Mismatch**
+  - **Task:** Combine similarity score with mismatch score so only semantically related but structurally divergent code is flagged.
+  - **Outcome:** The tool avoids flagging unrelated code and focuses on probable convention drift.
+
+- **Sub-phase 11.5: Severity Scoring**
+  - **Task:** Assign severity levels such as info, warning, and blocking based on mismatch type and confidence.
+  - **Outcome:** Users can prioritize important deviations during review.
+
+- **Sub-phase 11.6: Explanation Generator**
+  - **Task:** Generate concise explanations that cite the matched repository pattern and the exact difference in the staged code.
+  - **Outcome:** Users understand why a finding exists and can defend it during presentation.
+
+- **Sub-phase 11.7: Suggestion Prompt Hardening**
+  - **Task:** Update generation prompts to include retrieved pattern examples, structural requirements, current staged code, and validation constraints.
+  - **Outcome:** Suggested patches are more aligned with the repository's conventions.
+
+- **Sub-phase 11.8: Recommendation Validation**
+  - **Task:** Run syntax, Ruff, Mypy, optional tests, and graph consistency checks on each suggested implementation.
+  - **Outcome:** RepoAlign does not recommend obviously broken code.
+
+- **Sub-phase 11.9: False Positive Controls**
+  - **Task:** Add ignore-once and ignore-pattern decisions that are logged for the workspace.
+  - **Outcome:** The extension remains useful when a user intentionally diverges from a previous pattern.
+
+- **Sub-phase 11.10: Pattern Detection Evaluation Set**
+  - **Task:** Create 10-20 small staged-change examples that include both aligned and deviating implementations.
+  - **Outcome:** You can measure and demonstrate that inconsistency detection works on known cases.
+
+---
+
+## **Phase 12: Interactive Review, Patch Application, and User-Controlled Resolution**
+
+**Main Goal:** Build the production review experience promised in the project overview: show the staged code, explain the deviation, show the suggested aligned implementation, and let the developer accept, reject, ignore, or edit.
+
+- **Sub-phase 12.1: Findings Panel**
+  - **Task:** Create a VS Code webview panel listing all commit-time findings grouped by file and severity.
+  - **Outcome:** The user gets a clear review dashboard instead of separate popups.
+
+- **Sub-phase 12.2: Side-by-Side Diff Review**
+  - **Task:** Reuse or extend the current diff viewer to show staged code versus RepoAlign's suggested aligned version.
+  - **Outcome:** The interface matches the merge-conflict-style workflow described in the project overview.
+
+- **Sub-phase 12.3: Matched Pattern Evidence View**
+  - **Task:** Show the retrieved existing code examples or summarized pattern that caused each flag.
+  - **Outcome:** Findings are explainable and convincing during a final presentation.
+
+- **Sub-phase 12.4: Accept Suggestion**
+  - **Task:** Apply the suggested change to the user's actual file and update the staged diff.
+  - **Outcome:** A user can resolve a finding with one controlled action.
+
+- **Sub-phase 12.5: Reject Suggestion**
+  - **Task:** Let the user reject a suggestion while keeping the original staged code unchanged.
+  - **Outcome:** The developer remains in control.
+
+- **Sub-phase 12.6: Ignore Finding**
+  - **Task:** Allow ignore-once for a specific finding and optionally persist ignore rules for a pattern.
+  - **Outcome:** RepoAlign can handle intentional architectural exceptions.
+
+- **Sub-phase 12.7: Manual Edit Path**
+  - **Task:** Let the user open the affected file, edit manually, save, and re-run analysis from the findings panel.
+  - **Outcome:** The review workflow supports real developer behavior.
+
+- **Sub-phase 12.8: Re-Stage Accepted Changes**
+  - **Task:** After applying an accepted suggestion, stage the modified file or provide a one-click stage command.
+  - **Outcome:** Commit finalization is smooth and demo-ready.
+
+- **Sub-phase 12.9: Resolution State Tracking**
+  - **Task:** Track which findings are unresolved, accepted, rejected, ignored, or manually fixed.
+  - **Outcome:** The commit flow knows when it is safe to continue.
+
+- **Sub-phase 12.10: Review-to-Commit Completion**
+  - **Task:** After all blocking findings are resolved, run validation again and complete the Git commit.
+  - **Outcome:** RepoAlign demonstrates the full proposed loop from staged code to safe commit.
+
+---
+
+## **Phase 13: Packaging, Reliability, and Presentation-Ready Demo Release**
+
+**Main Goal:** Make RepoAlign stable enough for at least one real user and reliable enough for the final presentation demo.
+
+- **Sub-phase 13.1: Backend Configuration Cleanup**
+  - **Task:** Move service URLs, model names, Neo4j credentials, Qdrant settings, timeouts, and validation defaults into environment variables.
+  - **Outcome:** The backend can run on another machine without source edits.
+
+- **Sub-phase 13.2: Docker Compose Production Profile**
+  - **Task:** Create a clean demo/production compose profile with persistent volumes, health checks, and deterministic startup order.
+  - **Outcome:** The full stack starts reliably before the presentation.
+
+- **Sub-phase 13.3: Model Setup Automation**
+  - **Task:** Add a setup script or endpoint that checks/pulls the required Ollama model and reports model readiness.
+  - **Outcome:** Code generation does not fail mysteriously because the model is missing.
+
+- **Sub-phase 13.4: Extension Packaging**
+  - **Task:** Package the extension as a `.vsix` with `vsce`, correct metadata, activation events, commands, and README instructions.
+  - **Outcome:** One user can install RepoAlign into VS Code without running it only from the debugger.
+
+- **Sub-phase 13.5: Demo Repository Preparation**
+  - **Task:** Prepare a small but realistic Python demo repository with consistent patterns and one or two intentionally inconsistent changes.
+  - **Outcome:** The final presentation has a predictable story and repeatable results.
+
+- **Sub-phase 13.6: End-to-End Smoke Test Script**
+  - **Task:** Create a script/checklist that verifies backend health, graph build, embedding index, save sync, staged analysis, suggestion generation, validation, and commit completion.
+  - **Outcome:** You can test the full demo quickly before presenting.
+
+- **Sub-phase 13.7: Performance Budgeting**
+  - **Task:** Add timing logs and basic limits for indexing, retrieval, generation, validation, and commit analysis.
+  - **Outcome:** The extension feels responsive on the demo repository and has documented limits.
+
+- **Sub-phase 13.8: Failure Recovery**
+  - **Task:** Add reset/retry paths for common failures such as Neo4j unavailable, Qdrant collection missing, Ollama model missing, backend timeout, or malformed generated code.
+  - **Outcome:** A demo problem can be recovered without restarting from scratch.
+
+- **Sub-phase 13.9: User Documentation**
+  - **Task:** Write final user-facing setup, run, troubleshooting, and demo instructions.
+  - **Outcome:** Another user can install and use the tool with minimal help.
+
+- **Sub-phase 13.10: Final Demo Rehearsal**
+  - **Task:** Run the complete presentation scenario several times and record expected screenshots, commands, and fallback steps.
+  - **Outcome:** RepoAlign is presentation-ready as a usable extension.
+
+---
+
+## **Phase 14: Learned Query Planner**
+
+**Main Goal:** Upgrade the retrieval system with a fine-tuned model that translates natural language instructions into precise graph queries. This phase is valuable for research depth, but it should come after the production MVP workflow is usable.
+
+- **Sub-phase 14.1: Graph Query DSL Definition**
   - **Task:** Define a simple, structured Domain-Specific Language (DSL) for querying the knowledge graph (e.g., `find function with name "x" and get its callers`).
   - **Outcome:** A formal specification for a query language that the learned model will generate.
 
-- **Sub-phase 9.2: Synthetic Instruction Generation**
+- **Sub-phase 14.2: Synthetic Instruction Generation**
   - **Task:** Write a script that traverses the graph and generates simple natural language instructions (e.g., "What calls the 'get_user' function?").
   - **Outcome:** A dataset of simple, template-based instructions.
 
-- **Sub-phase 9.3: Synthetic Query Generation**
+- **Sub-phase 14.3: Synthetic Query Generation**
   - **Task:** For each synthetic instruction, automatically generate the corresponding ground-truth query in the defined DSL.
   - **Outcome:** A parallel corpus of (instruction, query) pairs, forming the initial training dataset.
 
-- **Sub-phase 9.4: Fine-Tuning Environment Setup**
+- **Sub-phase 14.4: Fine-Tuning Environment Setup**
   - **Task:** Set up the environment for training a sequence-to-sequence model (e.g., Flan-T5) using a library like Hugging Face's `transformers`.
   - **Outcome:** A Python script and environment capable of running a model fine-tuning job.
 
-- **Sub-phase 9.5: Initial Model Fine-Tuning**
+- **Sub-phase 14.5: Initial Model Fine-Tuning**
   - **Task:** Run the fine-tuning script on the synthetic dataset.
   - **Outcome:** A fine-tuned model saved to disk, capable of translating simple instructions into DSL queries.
 
-- **Sub-phase 9.6: Query Planner Service**
+- **Sub-phase 14.6: Query Planner Service**
   - **Task:** Create a new service in the backend that loads the fine-tuned model and provides an endpoint to translate an instruction into a DSL query.
   - **Outcome:** An API that exposes the learned query planner.
 
-- **Sub-phase 9.7: DSL Query Executor**
+- **Sub-phase 14.7: DSL Query Executor**
   - **Task:** Implement a module that can parse the generated DSL query and execute it against the Neo4j database.
   - **Outcome:** A function that can turn the model's output into actual graph query results.
 
-- **Sub-phase 9.8: Integration with Retrieval**
-  - **Task:** Replace the hybrid search mechanism in the main retrieval endpoint with the new learned query planner.
-  - **Outcome:** The context retrieval process is now driven by a machine-learning model instead of keyword/vector search.
+- **Sub-phase 14.8: Integration With Retrieval**
+  - **Task:** Add the learned query planner as an optional retrieval strategy, keeping hybrid search as a fallback.
+  - **Outcome:** The system gains learned graph querying without breaking the production workflow.
 
-- **Sub-phase 9.9: Feedback Signal Collection**
+- **Sub-phase 14.9: Feedback Signal Collection**
   - **Task:** Implement logging to track whether the context retrieved by the planner ultimately leads to a successful patch (e.g., passes tests).
   - **Outcome:** A dataset of (instruction, query, success_signal) triples for future reward-based tuning.
 
-- **Sub-phase 9.10: (Optional) Reward Tuning Loop**
+- **Sub-phase 14.10: Optional Reward Tuning Loop**
   - **Task:** Implement a simple REINFORCE-style algorithm to further fine-tune the planner model using the collected success signals as a reward.
   - **Outcome:** A more intelligent query planner that optimizes for generating useful context, not just syntactically correct queries.
 
 ---
 
-## **Phase 10: Advanced SMT Constraints and Final Evaluation**
+## **Phase 15: Advanced SMT Constraints and Final Evaluation**
 
-**Main Goal:** Implement a sophisticated, SMT-based constraint-guided decoder and conduct a final, thorough evaluation of the entire system.
+**Main Goal:** Add formal constraint checking and final research evaluation after the extension is already usable for the presentation workflow.
 
-- **Sub-phase 10.1: Z3 Integration**
+- **Sub-phase 15.1: Z3 Integration**
   - **Task:** Add the `z3-solver` library to `requirements.txt` and create a basic module to interact with the Z3 solver.
-  - **Outcome:** The backend can now create and solve simple SMT formulas.
+  - **Outcome:** The backend can create and solve simple SMT formulas.
 
-- **Sub-phase 10.2: Architectural Rule Definition**
-  - **Task:** Define a set of repository-specific architectural rules in a configurable format (e.g., "Controllers can only call Services").
-  - **Outcome:** A configuration file that formally specifies the desired software architecture.
+- **Sub-phase 15.2: Architectural Rule Definition**
+  - **Task:** Define repository-specific architectural rules in a configurable format (e.g., "Controllers can only call Services").
+  - **Outcome:** A configuration file formally specifies the desired software architecture.
 
-- **Sub-phase 10.3: SMT Rule Encoder**
-  - **Task:** Implement a module that translates these architectural rules into Z3 constraints.
-  - **Outcome:** A function that can build a Z3 solver state representing the architectural constraints of the repository.
+- **Sub-phase 15.3: SMT Rule Encoder**
+  - **Task:** Implement a module that translates architectural rules into Z3 constraints.
+  - **Outcome:** A function can build a Z3 solver state representing repository constraints.
 
-- **Sub-phase 10.4: SMT-based Validation**
-  - **Task:** Create a validation service that checks a generated patch against the Z3 constraints. For example, if a patch adds a call from a Controller to a database model, the SMT solver would report a violation.
-  - **Outcome:** A powerful validation step that can detect violations of high-level architectural patterns.
+- **Sub-phase 15.4: SMT-Based Validation**
+  - **Task:** Check generated or staged changes against Z3 constraints and report violations.
+  - **Outcome:** RepoAlign can detect high-level architectural violations beyond syntax, linting, and types.
 
-- **Sub-phase 10.5: (Advanced) Guided Decoding Hook**
-  - **Task:** Implement a custom generation hook for the Hugging Face `generate` method that checks partial generations against the Z3 solver.
-  - **Outcome:** A proof-of-concept for a guided decoding loop that can prune invalid code _as it is being generated_.
+- **Sub-phase 15.5: Constraint-Aware Suggestion Repair**
+  - **Task:** Feed SMT violations back into the suggestion prompt and retry generation within a limited budget.
+  - **Outcome:** Suggestions improve when they violate formal architectural rules.
 
-- **Sub-phase 10.6: Evaluation Benchmark Curation**
-  - **Task:** Select 8-12 suitable open-source Python repositories for the evaluation benchmark.
-  - **Outcome:** A defined set of target repositories for the final evaluation.
+- **Sub-phase 15.6: Guided Decoding Proof of Concept**
+  - **Task:** Implement an experimental generation hook that checks partial or candidate outputs against constraints.
+  - **Outcome:** A research-grade demonstration of constraint-guided generation is available.
 
-- **Sub-phase 10.7: Evaluation Task Creation**
-  - **Task:** Manually create 150-300 evaluation tasks, including bug fixes and feature requests, based on the commit history and issue trackers of the benchmark repos.
-  - **Outcome:** A comprehensive set of tasks to quantitatively measure the system's performance.
+- **Sub-phase 15.7: Evaluation Benchmark Curation**
+  - **Task:** Select a small final-year-project-friendly benchmark: the demo repository plus 2-3 additional Python repositories.
+  - **Outcome:** Evaluation remains realistic within project time while still showing generality.
 
-- **Sub-phase 10.8: Evaluation Harness**
-  - **Task:** Write an automated script that runs all evaluation tasks against the RepoAlign system and records the results.
-  - **Outcome:** An automated evaluation pipeline that can be run to benchmark the system.
+- **Sub-phase 15.8: Evaluation Task Creation**
+  - **Task:** Create 20-50 evaluation tasks covering pattern-aligned fixes, convention violations, and ordinary feature requests.
+  - **Outcome:** The system has measurable tasks without requiring an impractical 150-300 item benchmark before the presentation.
 
-- **Sub-pPhase 10.9: Metrics Calculation**
-  - **Task:** Implement scripts to calculate the final performance metrics from the evaluation results (e.g., `Pass@1`, test pass rate, lint pass rate).
-  - **Outcome:** A quantitative report of the system's final performance.
+- **Sub-phase 15.9: Metrics Calculation**
+  - **Task:** Calculate final metrics such as detection precision, false positives, suggestion acceptance rate, validation pass rate, and average response time.
+  - **Outcome:** The final report contains quantitative evidence of system behavior.
 
-- **Sub-phase 10.10: Final Report and Presentation**
-  - **Task:** Write the final project report, documenting the entire architecture, the journey through the phases, the final evaluation results, and key learnings. Prepare a presentation to demonstrate the system.
-  - **Outcome:** The completed final year project, including all deliverables: the working system, the comprehensive report, and a presentation.
+- **Sub-phase 15.10: Final Report and Presentation**
+  - **Task:** Write the final project report and presentation, documenting architecture, phases, implementation, demo workflow, limitations, and evaluation results.
+  - **Outcome:** The completed final year project includes a working extension, reproducible demo, report, and presentation.
+
+
+
