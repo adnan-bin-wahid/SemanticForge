@@ -23,6 +23,7 @@ type ValidationMode = "off" | "basic" | "full";
 interface RepoAlignConfig {
   backendUrl: string;
   excludedFolders: string[];
+  excludedGlobs: string[];
   similarityThreshold: number;
   modelName: string;
   validationMode: ValidationMode;
@@ -49,6 +50,24 @@ function getRepoAlignConfig(): RepoAlignConfig {
       "build",
       ".pytest_cache",
       ".mypy_cache",
+      ".ruff_cache",
+      ".tox",
+      ".nox",
+      "htmlcov",
+      "*.egg-info",
+    ]),
+    excludedGlobs: config.get<string[]>("excludedGlobs", [
+      "**/*.pyc",
+      "**/*.pyo",
+      "**/.coverage",
+      "**/.coverage.*",
+      "**/coverage.xml",
+      "**/coverage.json",
+      "**/htmlcov/**",
+      "**/*_pb2.py",
+      "**/*_pb2_grpc.py",
+      "**/generated/**",
+      "**/*generated*.py",
     ]),
     similarityThreshold: config.get<number>("similarityThreshold", 0.72),
     modelName: config.get<string>("modelName", "tinyllama"),
@@ -57,18 +76,92 @@ function getRepoAlignConfig(): RepoAlignConfig {
   };
 }
 
+function getFolderExcludeGlobs(folders: string[]): string[] {
+  return folders
+    .filter(Boolean)
+    .flatMap((folder) => {
+      if (folder.includes("/") || folder.includes("\\")) {
+        return [folder.replace(/\\/g, "/")];
+      }
+
+      return [`**/${folder}/**`];
+    });
+}
+
 function getExcludeGlob(extraFolders: string[] = []): string {
+  const config = getRepoAlignConfig();
   const folders = Array.from(
-    new Set([...getRepoAlignConfig().excludedFolders, ...extraFolders]),
+    new Set([...config.excludedFolders, ...extraFolders]),
+  ).filter(Boolean);
+  const globs = Array.from(
+    new Set([...getFolderExcludeGlobs(folders), ...config.excludedGlobs]),
   ).filter(Boolean);
 
-  return `{${folders.map((folder) => `**/${folder}/**`).join(",")}}`;
+  return `{${globs.join(",")}}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+}
+
+function globToRegExp(glob: string): RegExp {
+  const normalized = glob.replace(/\\/g, "/");
+  let pattern = "";
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    const next = normalized[index + 1];
+
+    if (char === "*" && next === "*") {
+      pattern += ".*";
+      index += 1;
+    } else if (char === "*") {
+      pattern += "[^/]*";
+    } else if (char === "?") {
+      pattern += "[^/]";
+    } else {
+      pattern += escapeRegExp(char);
+    }
+  }
+
+  return new RegExp(`^${pattern}$`);
+}
+
+function matchesExcludedGlob(
+  relativePath: string,
+  basename: string,
+  globs: string[],
+): boolean {
+  return globs.some((glob) => {
+    const normalized = glob.replace(/\\/g, "/");
+    const matcher = globToRegExp(normalized);
+
+    if (matcher.test(relativePath)) {
+      return true;
+    }
+
+    return !normalized.includes("/") && matcher.test(basename);
+  });
 }
 
 function shouldSyncUri(uri: vscode.Uri): boolean {
-  const pathParts = uri.path.split("/").filter(Boolean);
-  return !getRepoAlignConfig().excludedFolders.some((folder) =>
+  const config = getRepoAlignConfig();
+  const relativePath = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, "/");
+  const pathParts = relativePath.split("/").filter(Boolean);
+  const basename = pathParts[pathParts.length - 1] ?? "";
+
+  const excludedByFolder = config.excludedFolders.some((folder) =>
     pathParts.includes(folder),
+  );
+
+  const excludedGlobs = [
+    ...getFolderExcludeGlobs(config.excludedFolders),
+    ...config.excludedGlobs,
+  ];
+
+  return (
+    !excludedByFolder &&
+    !matchesExcludedGlob(relativePath, basename, excludedGlobs)
   );
 }
 
