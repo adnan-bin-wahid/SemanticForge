@@ -18,8 +18,59 @@ interface WorkspaceValidationResult {
   workspaceFolder?: vscode.WorkspaceFolder;
 }
 
-const BACKEND_URL = "http://localhost:8000/api/v1";
+type ValidationMode = "off" | "basic" | "full";
+
+interface RepoAlignConfig {
+  backendUrl: string;
+  excludedFolders: string[];
+  similarityThreshold: number;
+  modelName: string;
+  validationMode: ValidationMode;
+  autoSyncOnSave: boolean;
+}
+
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
+
+function getRepoAlignConfig(): RepoAlignConfig {
+  const config = vscode.workspace.getConfiguration("repoalign");
+  const backendUrl = config
+    .get<string>("backendUrl", "http://localhost:8000/api/v1")
+    .replace(/\/+$/, "");
+
+  return {
+    backendUrl,
+    excludedFolders: config.get<string[]>("excludedFolders", [
+      ".git",
+      ".venv",
+      "venv",
+      "__pycache__",
+      "node_modules",
+      "dist",
+      "build",
+      ".pytest_cache",
+      ".mypy_cache",
+    ]),
+    similarityThreshold: config.get<number>("similarityThreshold", 0.72),
+    modelName: config.get<string>("modelName", "tinyllama"),
+    validationMode: config.get<ValidationMode>("validationMode", "basic"),
+    autoSyncOnSave: config.get<boolean>("autoSyncOnSave", true),
+  };
+}
+
+function getExcludeGlob(extraFolders: string[] = []): string {
+  const folders = Array.from(
+    new Set([...getRepoAlignConfig().excludedFolders, ...extraFolders]),
+  ).filter(Boolean);
+
+  return `{${folders.map((folder) => `**/${folder}/**`).join(",")}}`;
+}
+
+function shouldSyncUri(uri: vscode.Uri): boolean {
+  const pathParts = uri.path.split("/").filter(Boolean);
+  return !getRepoAlignConfig().excludedFolders.some((folder) =>
+    pathParts.includes(folder),
+  );
+}
 
 function isPythonDocument(document: vscode.TextDocument): boolean {
   return (
@@ -39,7 +90,7 @@ async function sendWorkspaceFileChange(
 ) {
   const filePath = vscode.workspace.asRelativePath(uri, false);
 
-  await axios.post(`${BACKEND_URL}/workspace-file-change`, {
+  await axios.post(`${getRepoAlignConfig().backendUrl}/workspace-file-change`, {
     file_path: filePath,
     change_type: changeType,
     content,
@@ -54,7 +105,7 @@ async function hasPythonWorkspace(): Promise<boolean> {
 
   const pythonFiles = await vscode.workspace.findFiles(
     "**/*.py",
-    "{**/.git/**,**/.venv/**,**/venv/**,**/__pycache__/**,**/node_modules/**}",
+    getExcludeGlob(),
     1,
   );
 
@@ -95,7 +146,7 @@ async function validateWorkspace(): Promise<WorkspaceValidationResult> {
 
   const pythonFiles = await vscode.workspace.findFiles(
     "**/*.py",
-    "{**/.git/**,**/.venv/**,**/venv/**,**/__pycache__/**,**/node_modules/**,**/dist/**,**/build/**}",
+    getExcludeGlob(),
   );
 
   if (pythonFiles.length === 0) {
@@ -327,7 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
     "repoalign.healthCheck",
     async () => {
       try {
-        const response = await axios.get(`${BACKEND_URL}/health`);
+        const response = await axios.get(`${getRepoAlignConfig().backendUrl}/health`);
         if (response.data.status === "ok") {
           vscode.window.showInformationMessage("RepoAlign Backend is running!");
         } else {
@@ -390,7 +441,7 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             // 3. Send the data to the backend for graph construction
-            await axios.post(`${BACKEND_URL}/build-graph`, {
+            await axios.post(`${getRepoAlignConfig().backendUrl}/build-graph`, {
               files: fileContents,
             });
 
@@ -500,6 +551,7 @@ export function activate(context: vscode.ExtensionContext) {
               // Include repo path for validation
               const workspaceFolderPath =
                 vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              const repoAlignConfig = getRepoAlignConfig();
 
               // Convert Windows path to Docker path for backend
               // The backend runs in Docker where test-project is mounted at /app/test-project
@@ -515,17 +567,18 @@ export function activate(context: vscode.ExtensionContext) {
               }
 
               const response = await axios.post(
-                `${BACKEND_URL}/generate-patch`,
+                `${repoAlignConfig.backendUrl}/generate-patch`,
                 {
                   query: instruction,
                   original_content: originalContent,
                   file_path: filePath,
                   limit: 10,
+                  strict: repoAlignConfig.validationMode === "full",
                   // Optional validation parameters (only if workspace available)
-                  ...(dockerRepoPath && {
+                  ...(dockerRepoPath && repoAlignConfig.validationMode !== "off" && {
                     repo_path: dockerRepoPath,
                     file_relative_path: filePath,
-                    run_tests: false, // Disable tests by default for speed
+                    run_tests: repoAlignConfig.validationMode === "full",
                   }),
                 },
                 {
@@ -711,7 +764,15 @@ export function activate(context: vscode.ExtensionContext) {
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
     vscode.workspace.onDidSaveTextDocument(async (document) => {
+      if (!getRepoAlignConfig().autoSyncOnSave) {
+        return;
+      }
+
       if (!isPythonDocument(document)) {
+        return;
+      }
+
+      if (!shouldSyncUri(document.uri)) {
         return;
       }
 
@@ -727,8 +788,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.workspace.onDidCreateFiles(async (event) => {
+      if (!getRepoAlignConfig().autoSyncOnSave) {
+        return;
+      }
+
       for (const uri of event.files) {
         if (!uri.fsPath.endsWith(".py")) {
+          continue;
+        }
+
+        if (!shouldSyncUri(uri)) {
           continue;
         }
 
@@ -742,8 +811,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.workspace.onDidDeleteFiles(async (event) => {
+      if (!getRepoAlignConfig().autoSyncOnSave) {
+        return;
+      }
+
       for (const uri of event.files) {
         if (!uri.fsPath.endsWith(".py")) {
+          continue;
+        }
+
+        if (!shouldSyncUri(uri)) {
           continue;
         }
 

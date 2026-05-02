@@ -50,7 +50,67 @@
         "mac": "cmd+shift+alt+g",
         "when": "editorTextFocus"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "RepoAlign",
+      "properties": {
+        "repoalign.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000/api/v1",
+          "description": "Base URL for the RepoAlign backend API."
+        },
+        "repoalign.excludedFolders": {
+          "type": "array",
+          "default": [
+            ".git",
+            ".venv",
+            "venv",
+            "__pycache__",
+            "node_modules",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".mypy_cache"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Folder names excluded from workspace analysis and automatic sync."
+        },
+        "repoalign.similarityThreshold": {
+          "type": "number",
+          "default": 0.72,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Similarity threshold used by future pattern matching and inconsistency detection workflows."
+        },
+        "repoalign.modelName": {
+          "type": "string",
+          "default": "tinyllama",
+          "description": "Preferred local LLM model name for RepoAlign generation workflows."
+        },
+        "repoalign.validationMode": {
+          "type": "string",
+          "default": "basic",
+          "enum": [
+            "off",
+            "basic",
+            "full"
+          ],
+          "enumDescriptions": [
+            "Do not request validation during generation.",
+            "Run fast validation without tests.",
+            "Run validation including tests when a repository path is available."
+          ],
+          "description": "Validation depth for generated patches."
+        },
+        "repoalign.autoSyncOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically synchronize saved Python files to the RepoAlign knowledge graph."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
