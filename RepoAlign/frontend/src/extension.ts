@@ -11,6 +11,26 @@ interface FileContent {
   content: string;
 }
 
+interface IndexingReadResult {
+  files: FileContent[];
+  failedReads: Array<{ path: string; message: string }>;
+}
+
+type GraphIndexStatus = "indexed" | "failed" | "cancelled";
+
+interface IndexingState {
+  workspaceId: string;
+  workspaceName: string;
+  lastIndexedAt: string;
+  discoveredFileCount: number;
+  indexedFileCount: number;
+  failedReadCount: number;
+  backendUrl: string;
+  graphStatus: GraphIndexStatus;
+  durationSeconds?: number;
+  lastError?: string;
+}
+
 interface WorkspaceValidationResult {
   status: "ready" | "no-workspace" | "not-git-repo" | "no-python-files";
   message: string;
@@ -45,6 +65,7 @@ interface ReadinessResponse {
 }
 
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
+const INDEXING_STATE_KEY = "repoalign.indexingState";
 const outputChannel = vscode.window.createOutputChannel("RepoAlign");
 
 function getRepoAlignConfig(): RepoAlignConfig {
@@ -191,6 +212,85 @@ function getWorkspaceId(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
+function getIndexingState(
+  context: vscode.ExtensionContext,
+): IndexingState | undefined {
+  return context.workspaceState.get<IndexingState>(INDEXING_STATE_KEY);
+}
+
+async function saveIndexingState(
+  context: vscode.ExtensionContext,
+  state: IndexingState,
+): Promise<void> {
+  await context.workspaceState.update(INDEXING_STATE_KEY, state);
+}
+
+function createIndexingState(
+  validation: WorkspaceValidationResult,
+  graphStatus: GraphIndexStatus,
+  values: {
+    discoveredFileCount: number;
+    indexedFileCount: number;
+    failedReadCount: number;
+    durationSeconds?: number;
+    lastError?: string;
+  },
+): IndexingState {
+  const config = getRepoAlignConfig();
+
+  return {
+    workspaceId: getWorkspaceId() ?? "unknown-workspace",
+    workspaceName: validation.workspaceFolder?.name ?? "workspace",
+    lastIndexedAt: new Date().toISOString(),
+    discoveredFileCount: values.discoveredFileCount,
+    indexedFileCount: values.indexedFileCount,
+    failedReadCount: values.failedReadCount,
+    backendUrl: config.backendUrl,
+    graphStatus,
+    durationSeconds: values.durationSeconds,
+    lastError: values.lastError,
+  };
+}
+
+function formatIndexingState(state: IndexingState): string {
+  const indexedAt = new Date(state.lastIndexedAt).toLocaleString();
+  const duration =
+    typeof state.durationSeconds === "number"
+      ? `${state.durationSeconds.toFixed(1)}s`
+      : "n/a";
+
+  return [
+    `Workspace: ${state.workspaceName}`,
+    `Status: ${state.graphStatus}`,
+    `Last indexed: ${indexedAt}`,
+    `Backend: ${state.backendUrl}`,
+    `Discovered files: ${state.discoveredFileCount}`,
+    `Indexed files: ${state.indexedFileCount}`,
+    `Failed reads: ${state.failedReadCount}`,
+    `Duration: ${duration}`,
+    ...(state.lastError ? [`Last error: ${state.lastError}`] : []),
+  ].join("\n");
+}
+
+function reportIndexingState(state: IndexingState | undefined): void {
+  if (!state) {
+    vscode.window.showInformationMessage(
+      "RepoAlign has not indexed this workspace yet. Run RepoAlign: Analyze Workspace.",
+    );
+    return;
+  }
+
+  outputChannel.clear();
+  outputChannel.appendLine("RepoAlign Indexing Status");
+  outputChannel.appendLine("");
+  outputChannel.appendLine(formatIndexingState(state));
+  outputChannel.show(true);
+
+  vscode.window.showInformationMessage(
+    `RepoAlign graph status: ${state.graphStatus}. Indexed ${state.indexedFileCount}/${state.discoveredFileCount} file(s).`,
+  );
+}
+
 async function sendWorkspaceFileChange(
   uri: vscode.Uri,
   changeType: "added" | "modified" | "deleted",
@@ -302,6 +402,206 @@ function writeReadinessReport(readiness: ReadinessResponse): void {
       outputChannel.appendLine(`  models: ${service.models.join(", ")}`);
     }
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data
+      ? JSON.stringify(error.response.data)
+      : error.message;
+    return detail;
+  }
+
+  return error instanceof Error ? error.message : String(error);
+}
+
+function writeIndexingReport(lines: string[]): void {
+  outputChannel.clear();
+  outputChannel.appendLine("RepoAlign Initial Repository Indexing");
+  outputChannel.appendLine("");
+  for (const line of lines) {
+    outputChannel.appendLine(line);
+  }
+}
+
+async function readWorkspaceFilesForIndexing(
+  uris: vscode.Uri[],
+  progress: vscode.Progress<{ increment?: number; message?: string }>,
+  token: vscode.CancellationToken,
+): Promise<IndexingReadResult> {
+  const files: FileContent[] = [];
+  const failedReads: Array<{ path: string; message: string }> = [];
+  const total = Math.max(uris.length, 1);
+
+  for (let index = 0; index < uris.length; index += 1) {
+    if (token.isCancellationRequested) {
+      break;
+    }
+
+    const uri = uris[index];
+    const path = vscode.workspace.asRelativePath(uri, false);
+
+    progress.report({
+      increment: 30 / total,
+      message: `Reading ${index + 1}/${uris.length}: ${path}`,
+    });
+
+    try {
+      const document = await vscode.workspace.openTextDocument(uri);
+      files.push({
+        path,
+        content: document.getText(),
+      });
+    } catch (error) {
+      failedReads.push({
+        path,
+        message: getErrorMessage(error),
+      });
+    }
+  }
+
+  return { files, failedReads };
+}
+
+async function runInitialRepositoryIndexing(
+  context: vscode.ExtensionContext,
+  validation: WorkspaceValidationResult,
+  progress: vscode.Progress<{ increment?: number; message?: string }>,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const startedAt = Date.now();
+  const config = getRepoAlignConfig();
+  const workspaceName = validation.workspaceFolder?.name ?? "workspace";
+  const pythonFiles = validation.pythonFiles;
+
+  writeIndexingReport([
+    `Workspace: ${workspaceName}`,
+    `Backend: ${config.backendUrl}`,
+    `Python files discovered: ${pythonFiles.length}`,
+    `Excluded folders: ${config.excludedFolders.join(", ")}`,
+    `Excluded globs: ${config.excludedGlobs.join(", ")}`,
+  ]);
+
+  progress.report({
+    increment: 5,
+    message: "Checking backend readiness...",
+  });
+
+  const readiness = await runBackendReadinessCheck();
+  if (!readiness?.ready) {
+    throw new Error("Backend readiness check failed. See RepoAlign output for details.");
+  }
+
+  if (token.isCancellationRequested) {
+    await saveIndexingState(
+      context,
+      createIndexingState(validation, "cancelled", {
+        discoveredFileCount: pythonFiles.length,
+        indexedFileCount: 0,
+        failedReadCount: 0,
+      }),
+    );
+    vscode.window.showWarningMessage("RepoAlign indexing cancelled.");
+    return;
+  }
+
+  progress.report({
+    increment: 10,
+    message: `${pythonFiles.length} Python file(s) ready for indexing.`,
+  });
+
+  const readResult = await readWorkspaceFilesForIndexing(
+    pythonFiles,
+    progress,
+    token,
+  );
+
+  if (token.isCancellationRequested) {
+    await saveIndexingState(
+      context,
+      createIndexingState(validation, "cancelled", {
+        discoveredFileCount: pythonFiles.length,
+        indexedFileCount: readResult.files.length,
+        failedReadCount: readResult.failedReads.length,
+      }),
+    );
+    writeIndexingReport([
+      `Workspace: ${workspaceName}`,
+      "Status: cancelled while reading files",
+      `Files read before cancellation: ${readResult.files.length}/${pythonFiles.length}`,
+      `Failed reads: ${readResult.failedReads.length}`,
+    ]);
+    vscode.window.showWarningMessage("RepoAlign indexing cancelled.");
+    outputChannel.show(true);
+    return;
+  }
+
+  if (readResult.files.length === 0) {
+    throw new Error("No readable Python files were available for indexing.");
+  }
+
+  progress.report({
+    increment: 15,
+    message: `Sending ${readResult.files.length} file(s) to backend...`,
+  });
+
+  const response = await axios.post(`${config.backendUrl}/build-graph`, {
+    files: readResult.files,
+  });
+
+  if (token.isCancellationRequested) {
+    await saveIndexingState(
+      context,
+      createIndexingState(validation, "cancelled", {
+        discoveredFileCount: pythonFiles.length,
+        indexedFileCount: readResult.files.length,
+        failedReadCount: readResult.failedReads.length,
+      }),
+    );
+    vscode.window.showWarningMessage(
+      "RepoAlign indexing finished on backend, but the command was cancelled before completion reporting.",
+    );
+    return;
+  }
+
+  progress.report({
+    increment: 40,
+    message: "Knowledge graph construction complete.",
+  });
+
+  const durationSeconds = (Date.now() - startedAt) / 1000;
+  await saveIndexingState(
+    context,
+    createIndexingState(validation, "indexed", {
+      discoveredFileCount: pythonFiles.length,
+      indexedFileCount: readResult.files.length,
+      failedReadCount: readResult.failedReads.length,
+      durationSeconds,
+    }),
+  );
+
+  writeIndexingReport([
+    `Workspace: ${workspaceName}`,
+    "Status: success",
+    `Discovered Python files: ${pythonFiles.length}`,
+    `Indexed files: ${readResult.files.length}`,
+    `Failed reads: ${readResult.failedReads.length}`,
+    `Duration: ${durationSeconds.toFixed(1)}s`,
+    `Backend response: ${JSON.stringify(response.data)}`,
+    "",
+    ...readResult.failedReads.map(
+      (failure) => `Read warning: ${failure.path} - ${failure.message}`,
+    ),
+  ]);
+
+  const warningText =
+    readResult.failedReads.length > 0
+      ? ` (${readResult.failedReads.length} file(s) could not be read)`
+      : "";
+
+  vscode.window.showInformationMessage(
+    `RepoAlign indexed ${readResult.files.length}/${pythonFiles.length} Python file(s)${warningText}.`,
+  );
 }
 
 async function runBackendReadinessCheck(): Promise<ReadinessResponse | undefined> {
@@ -466,6 +766,7 @@ function getWelcomeHtml(webview: vscode.Webview): string {
       <button data-command="validate">Validate Workspace</button>
       <button data-command="readiness">Backend Readiness</button>
       <button data-command="analyze">Analyze Workspace</button>
+      <button data-command="indexStatus">Indexing Status</button>
       <button data-command="generate">Generate Patch</button>
       <button class="secondary" data-command="hide">Do Not Show Again</button>
     </div>
@@ -508,6 +809,9 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
         break;
       case "analyze":
         await vscode.commands.executeCommand("repoalign.analyzeWorkspace");
+        break;
+      case "indexStatus":
+        await vscode.commands.executeCommand("repoalign.showIndexingStatus");
         break;
       case "generate":
         await vscode.commands.executeCommand("repoalign.generatePatch");
@@ -553,6 +857,13 @@ export function activate(context: vscode.ExtensionContext) {
     async () => runBackendReadinessCheck(),
   );
 
+  const showIndexingStatusDisposable = vscode.commands.registerCommand(
+    "repoalign.showIndexingStatus",
+    async () => {
+      reportIndexingState(getIndexingState(context));
+    },
+  );
+
   // Command for backend health check
   let healthCheckDisposable = vscode.commands.registerCommand(
     "repoalign.healthCheck",
@@ -571,61 +882,54 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      const existingIndex = getIndexingState(context);
+      const config = getRepoAlignConfig();
+      if (
+        existingIndex?.graphStatus === "indexed" &&
+        existingIndex.backendUrl === config.backendUrl &&
+        existingIndex.workspaceId === getWorkspaceId()
+      ) {
+        const choice = await vscode.window.showInformationMessage(
+          `RepoAlign already indexed this workspace at ${new Date(existingIndex.lastIndexedAt).toLocaleString()} (${existingIndex.indexedFileCount} file(s)).`,
+          "Re-index",
+          "Show Status",
+          "Cancel",
+        );
+
+        if (choice === "Show Status") {
+          reportIndexingState(existingIndex);
+          return;
+        }
+
+        if (choice !== "Re-index") {
+          return;
+        }
+      }
+
       vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "RepoAlign: Analyzing workspace...",
-          cancellable: false,
+          title: "RepoAlign: Indexing repository...",
+          cancellable: true,
         },
-        async (progress) => {
+        async (progress, token) => {
           try {
-            progress.report({
-              increment: 0,
-              message: "Finding Python files...",
-            });
-
-            const pythonFiles = validation.pythonFiles;
-
-            progress.report({
-              increment: 20,
-              message: "Reading file contents...",
-            });
-
-            // 2. Read the content of each file
-            const fileContents: FileContent[] = await Promise.all(
-              pythonFiles.map(async (uri) => {
-                const document = await vscode.workspace.openTextDocument(uri);
-                return {
-                  path: vscode.workspace.asRelativePath(uri),
-                  content: document.getText(),
-                };
+            await runInitialRepositoryIndexing(context, validation, progress, token);
+          } catch (error) {
+            const message = getErrorMessage(error);
+            await saveIndexingState(
+              context,
+              createIndexingState(validation, "failed", {
+                discoveredFileCount: validation.pythonFiles.length,
+                indexedFileCount: 0,
+                failedReadCount: 0,
+                lastError: message,
               }),
             );
-
-            progress.report({
-              increment: 50,
-              message:
-                "Sending data to backend for analysis and graph construction...",
-            });
-
-            // 3. Send the data to the backend for graph construction
-            await axios.post(`${getRepoAlignConfig().backendUrl}/build-graph`, {
-              files: fileContents,
-            });
-
-            progress.report({
-              increment: 100,
-              message: "Graph construction complete.",
-            });
-
-            vscode.window.showInformationMessage(
-              "RepoAlign: Knowledge graph built successfully!",
-            );
-          } catch (error) {
-            vscode.window.showErrorMessage(
-              "An error occurred during workspace analysis.",
-            );
-            console.error(error);
+            outputChannel.appendLine("");
+            outputChannel.appendLine(`Indexing failed: ${message}`);
+            outputChannel.show(true);
+            vscode.window.showErrorMessage(`RepoAlign indexing failed: ${message}`);
           }
         },
       );
@@ -929,6 +1233,7 @@ export function activate(context: vscode.ExtensionContext) {
     showWelcomeDisposable,
     validateWorkspaceDisposable,
     checkReadinessDisposable,
+    showIndexingStatusDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,

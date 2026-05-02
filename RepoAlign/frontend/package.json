@@ -15,6 +15,7 @@
     "onCommand:repoalign.showWelcome",
     "onCommand:repoalign.validateWorkspace",
     "onCommand:repoalign.checkReadiness",
+    "onCommand:repoalign.showIndexingStatus",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -33,6 +34,10 @@
       {
         "command": "repoalign.checkReadiness",
         "title": "RepoAlign: Backend Readiness Check"
+      },
+      {
+        "command": "repoalign.showIndexingStatus",
+        "title": "RepoAlign: Indexing Status"
       },
       {
         "command": "repoalign.healthCheck",
