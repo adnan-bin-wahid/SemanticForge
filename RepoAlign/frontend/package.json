@@ -13,6 +13,7 @@
     "onStartupFinished",
     "workspaceContains:**/*.py",
     "onCommand:repoalign.showWelcome",
+    "onCommand:repoalign.validateWorkspace",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -23,6 +24,10 @@
       {
         "command": "repoalign.showWelcome",
         "title": "RepoAlign: Welcome / Setup"
+      },
+      {
+        "command": "repoalign.validateWorkspace",
+        "title": "RepoAlign: Validate Workspace"
       },
       {
         "command": "repoalign.healthCheck",

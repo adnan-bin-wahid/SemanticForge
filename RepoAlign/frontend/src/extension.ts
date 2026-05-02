@@ -11,6 +11,13 @@ interface FileContent {
   content: string;
 }
 
+interface WorkspaceValidationResult {
+  status: "ready" | "no-workspace" | "not-git-repo" | "no-python-files";
+  message: string;
+  pythonFiles: vscode.Uri[];
+  workspaceFolder?: vscode.WorkspaceFolder;
+}
+
 const BACKEND_URL = "http://localhost:8000/api/v1";
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
 
@@ -52,6 +59,69 @@ async function hasPythonWorkspace(): Promise<boolean> {
   );
 
   return pythonFiles.length > 0;
+}
+
+async function hasGitRepository(
+  workspaceFolder: vscode.WorkspaceFolder,
+): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(
+      vscode.Uri.joinPath(workspaceFolder.uri, ".git"),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function validateWorkspace(): Promise<WorkspaceValidationResult> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return {
+      status: "no-workspace",
+      message: "RepoAlign needs an opened workspace folder before analysis.",
+      pythonFiles: [],
+    };
+  }
+
+  if (!(await hasGitRepository(workspaceFolder))) {
+    return {
+      status: "not-git-repo",
+      message: "RepoAlign needs the opened workspace to be a Git repository.",
+      pythonFiles: [],
+      workspaceFolder,
+    };
+  }
+
+  const pythonFiles = await vscode.workspace.findFiles(
+    "**/*.py",
+    "{**/.git/**,**/.venv/**,**/venv/**,**/__pycache__/**,**/node_modules/**,**/dist/**,**/build/**}",
+  );
+
+  if (pythonFiles.length === 0) {
+    return {
+      status: "no-python-files",
+      message: "RepoAlign found no Python files in this workspace.",
+      pythonFiles,
+      workspaceFolder,
+    };
+  }
+
+  return {
+    status: "ready",
+    message: `RepoAlign workspace is ready: ${pythonFiles.length} Python file(s) found in a Git repository.`,
+    pythonFiles,
+    workspaceFolder,
+  };
+}
+
+function reportWorkspaceValidation(result: WorkspaceValidationResult): void {
+  if (result.status === "ready") {
+    vscode.window.showInformationMessage(result.message);
+    return;
+  }
+
+  vscode.window.showWarningMessage(result.message);
 }
 
 function getWelcomeHtml(webview: vscode.Webview): string {
@@ -170,6 +240,7 @@ function getWelcomeHtml(webview: vscode.Webview): string {
     </section>
 
     <div class="actions">
+      <button data-command="validate">Validate Workspace</button>
       <button data-command="health">Health Check</button>
       <button data-command="analyze">Analyze Workspace</button>
       <button data-command="generate">Generate Patch</button>
@@ -203,6 +274,9 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
   panel.webview.html = getWelcomeHtml(panel.webview);
   panel.webview.onDidReceiveMessage(async (message) => {
     switch (message.command) {
+      case "validate":
+        await vscode.commands.executeCommand("repoalign.validateWorkspace");
+        break;
       case "health":
         await vscode.commands.executeCommand("repoalign.healthCheck");
         break;
@@ -239,6 +313,15 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  const validateWorkspaceDisposable = vscode.commands.registerCommand(
+    "repoalign.validateWorkspace",
+    async () => {
+      const result = await validateWorkspace();
+      reportWorkspaceValidation(result);
+      return result;
+    },
+  );
+
   // Command for backend health check
   let healthCheckDisposable = vscode.commands.registerCommand(
     "repoalign.healthCheck",
@@ -263,6 +346,12 @@ export function activate(context: vscode.ExtensionContext) {
   let analyzeWorkspaceDisposable = vscode.commands.registerCommand(
     "repoalign.analyzeWorkspace",
     async () => {
+      const validation = await validateWorkspace();
+      if (validation.status !== "ready") {
+        reportWorkspaceValidation(validation);
+        return;
+      }
+
       vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -276,17 +365,7 @@ export function activate(context: vscode.ExtensionContext) {
               message: "Finding Python files...",
             });
 
-            // 1. Find all Python files in the workspace
-            const pythonFiles = await vscode.workspace.findFiles(
-              "**/*.py",
-              "**/node_modules/**",
-            );
-            if (pythonFiles.length === 0) {
-              vscode.window.showInformationMessage(
-                "No Python files found in this workspace.",
-              );
-              return;
-            }
+            const pythonFiles = validation.pythonFiles;
 
             progress.report({
               increment: 20,
@@ -627,6 +706,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     showWelcomeDisposable,
+    validateWorkspaceDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
