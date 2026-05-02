@@ -12,6 +12,7 @@ interface FileContent {
 }
 
 const BACKEND_URL = "http://localhost:8000/api/v1";
+const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
 
 function isPythonDocument(document: vscode.TextDocument): boolean {
   return (
@@ -39,6 +40,189 @@ async function sendWorkspaceFileChange(
   });
 }
 
+async function hasPythonWorkspace(): Promise<boolean> {
+  if (!vscode.workspace.workspaceFolders?.length) {
+    return false;
+  }
+
+  const pythonFiles = await vscode.workspace.findFiles(
+    "**/*.py",
+    "{**/.git/**,**/.venv/**,**/venv/**,**/__pycache__/**,**/node_modules/**}",
+    1,
+  );
+
+  return pythonFiles.length > 0;
+}
+
+function getWelcomeHtml(webview: vscode.Webview): string {
+  const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';"
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RepoAlign Welcome</title>
+  <style>
+    body {
+      color: var(--vscode-foreground);
+      background: var(--vscode-editor-background);
+      font-family: var(--vscode-font-family);
+      margin: 0;
+      padding: 28px;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 760px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+
+    p {
+      color: var(--vscode-descriptionForeground);
+      margin: 0 0 18px;
+    }
+
+    .steps {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      margin: 20px 0;
+      overflow: hidden;
+    }
+
+    .step {
+      border-bottom: 1px solid var(--vscode-panel-border);
+      padding: 14px 16px;
+    }
+
+    .step:last-child {
+      border-bottom: 0;
+    }
+
+    .step strong {
+      display: block;
+      color: var(--vscode-foreground);
+      margin-bottom: 2px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    button {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+      padding: 8px 12px;
+    }
+
+    button:hover {
+      background: var(--vscode-button-hoverBackground);
+    }
+
+    button.secondary {
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+    }
+
+    button.secondary:hover {
+      background: var(--vscode-button-secondaryHoverBackground);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>RepoAlign</h1>
+    <p>Set up repository-aware code generation and live graph sync for this Python workspace.</p>
+
+    <section class="steps">
+      <div class="step">
+        <strong>1. Check backend</strong>
+        Confirm the local FastAPI backend is reachable.
+      </div>
+      <div class="step">
+        <strong>2. Analyze workspace</strong>
+        Build the initial knowledge graph from the opened Python project.
+      </div>
+      <div class="step">
+        <strong>3. Work normally</strong>
+        Saving Python files keeps the graph synchronized automatically.
+      </div>
+      <div class="step">
+        <strong>4. Generate patches</strong>
+        Open a Python file and run RepoAlign's patch generation command.
+      </div>
+    </section>
+
+    <div class="actions">
+      <button data-command="health">Health Check</button>
+      <button data-command="analyze">Analyze Workspace</button>
+      <button data-command="generate">Generate Patch</button>
+      <button class="secondary" data-command="hide">Do Not Show Again</button>
+    </div>
+  </main>
+
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    document.querySelectorAll("button[data-command]").forEach((button) => {
+      button.addEventListener("click", () => {
+        vscode.postMessage({ command: button.dataset.command });
+      });
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function showWelcomePanel(context: vscode.ExtensionContext) {
+  const panel = vscode.window.createWebviewPanel(
+    "repoalignWelcome",
+    "RepoAlign Welcome",
+    vscode.ViewColumn.One,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+    },
+  );
+
+  panel.webview.html = getWelcomeHtml(panel.webview);
+  panel.webview.onDidReceiveMessage(async (message) => {
+    switch (message.command) {
+      case "health":
+        await vscode.commands.executeCommand("repoalign.healthCheck");
+        break;
+      case "analyze":
+        await vscode.commands.executeCommand("repoalign.analyzeWorkspace");
+        break;
+      case "generate":
+        await vscode.commands.executeCommand("repoalign.generatePatch");
+        break;
+      case "hide":
+        await context.workspaceState.update(WELCOME_SHOWN_KEY, true);
+        panel.dispose();
+        vscode.window.showInformationMessage(
+          "RepoAlign welcome will stay hidden for this workspace.",
+        );
+        break;
+    }
+  });
+}
+
 export function activate(context: vscode.ExtensionContext) {
   console.log(
     'Congratulations, your extension "repoalign-frontend" is now active!',
@@ -46,6 +230,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Validation panel for displaying patch validation results
   let validationPanel: vscode.WebviewPanel | undefined;
+
+  const showWelcomeDisposable = vscode.commands.registerCommand(
+    "repoalign.showWelcome",
+    async () => {
+      showWelcomePanel(context);
+      await context.workspaceState.update(WELCOME_SHOWN_KEY, true);
+    },
+  );
 
   // Command for backend health check
   let healthCheckDisposable = vscode.commands.registerCommand(
@@ -434,6 +626,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    showWelcomeDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
@@ -483,6 +676,17 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
   );
+
+  void (async () => {
+    if (context.workspaceState.get<boolean>(WELCOME_SHOWN_KEY)) {
+      return;
+    }
+
+    if (await hasPythonWorkspace()) {
+      showWelcomePanel(context);
+      await context.workspaceState.update(WELCOME_SHOWN_KEY, true);
+    }
+  })();
 }
 
 export function deactivate() {}

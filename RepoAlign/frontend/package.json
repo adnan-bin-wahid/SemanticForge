@@ -12,6 +12,7 @@
   "activationEvents": [
     "onStartupFinished",
     "workspaceContains:**/*.py",
+    "onCommand:repoalign.showWelcome",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -19,6 +20,10 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "repoalign.showWelcome",
+        "title": "RepoAlign: Welcome / Setup"
+      },
       {
         "command": "repoalign.healthCheck",
         "title": "RepoAlign: Health Check"
