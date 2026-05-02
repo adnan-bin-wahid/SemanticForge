@@ -7,10 +7,11 @@ Uses watchdog library to detect file creation, deletion, and modification events
 import logging
 import threading
 import time
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 from pathlib import Path
 from queue import Queue, Empty
 from datetime import datetime
+from app.services.change_queue import ChangeQueue, FileChangeType
 
 try:
     from watchdog.observers import Observer
@@ -55,7 +56,13 @@ class FileSystemChangeEvent:
 class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILABLE else object):
     """Handles file system events and queues them for processing."""
     
-    def __init__(self, change_queue: Queue, repo_path: str):
+    def __init__(
+        self,
+        change_queue: Queue,
+        repo_path: str,
+        maintenance_queue: Optional[ChangeQueue] = None,
+        event_callback: Optional[Callable[[str], None]] = None,
+    ):
         """
         Initialize the event handler.
         
@@ -67,6 +74,8 @@ class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILA
             super().__init__()
         self.change_queue = change_queue
         self.repo_path = repo_path
+        self.maintenance_queue = maintenance_queue
+        self.event_callback = event_callback
         self.python_extensions = {'.py', '.pyi'}
         self.ignored_patterns = {
             '__pycache__',
@@ -104,6 +113,28 @@ class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILA
                 return False
         
         return True
+
+    def _relative_path(self, path: str) -> str:
+        """Convert absolute watcher paths to repo-relative paths for the worker."""
+        try:
+            return str(Path(path).resolve().relative_to(Path(self.repo_path).resolve()))
+        except ValueError:
+            return path
+
+    def _enqueue_change(self, event_type: str, file_path: str) -> None:
+        """Record the watcher event and forward it to the maintenance queue."""
+        change_event = FileSystemChangeEvent(event_type, file_path)
+        self.change_queue.put(change_event)
+        if self.event_callback:
+            self.event_callback(event_type)
+
+        if self.maintenance_queue:
+            change_type = {
+                "created": FileChangeType.ADDED,
+                "modified": FileChangeType.MODIFIED,
+                "deleted": FileChangeType.DELETED,
+            }[event_type]
+            self.maintenance_queue.add_change(self._relative_path(file_path), change_type)
     
     def on_created(self, event):
         """Handle file creation event."""
@@ -112,8 +143,7 @@ class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILA
             return
         
         if self._should_process_path(event.src_path):
-            change_event = FileSystemChangeEvent('created', event.src_path)
-            self.change_queue.put(change_event)
+            self._enqueue_change('created', event.src_path)
             logger.info(f"[PHASE 8.1] File created: {event.src_path}")
     
     def on_deleted(self, event):
@@ -123,8 +153,7 @@ class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILA
             return
         
         if self._should_process_path(event.src_path):
-            change_event = FileSystemChangeEvent('deleted', event.src_path)
-            self.change_queue.put(change_event)
+            self._enqueue_change('deleted', event.src_path)
             logger.info(f"[PHASE 8.1] File deleted: {event.src_path}")
     
     def on_modified(self, event):
@@ -134,8 +163,7 @@ class RepositoryFileSystemEventHandler(FileSystemEventHandler if WATCHDOG_AVAILA
             return
         
         if self._should_process_path(event.src_path):
-            change_event = FileSystemChangeEvent('modified', event.src_path)
-            self.change_queue.put(change_event)
+            self._enqueue_change('modified', event.src_path)
             logger.debug(f"[PHASE 8.1] File modified: {event.src_path}")
 
 
@@ -145,7 +173,7 @@ class FileWatcher:
     Uses watchdog to detect file creation, deletion, and modification events.
     """
     
-    def __init__(self, repo_path: str):
+    def __init__(self, repo_path: str, maintenance_queue: Optional[ChangeQueue] = None):
         """
         Initialize the file watcher.
         
@@ -153,6 +181,7 @@ class FileWatcher:
             repo_path: Root path of the repository to monitor
         """
         self.repo_path = repo_path
+        self.maintenance_queue = maintenance_queue
         self.observer = None
         self.change_queue = Queue()
         self.is_running = False
@@ -191,7 +220,12 @@ class FileWatcher:
             self.observer = Observer()
             
             # Create event handler
-            event_handler = RepositoryFileSystemEventHandler(self.change_queue, self.repo_path)
+            event_handler = RepositoryFileSystemEventHandler(
+                self.change_queue,
+                self.repo_path,
+                self.maintenance_queue,
+                self._record_event,
+            )
             
             # Schedule observer to watch the repository
             self.observer.schedule(event_handler, self.repo_path, recursive=True)
@@ -217,6 +251,11 @@ class FileWatcher:
                 "status": "failed",
                 "error": str(e)
             }
+
+    def _record_event(self, event_type: str) -> None:
+        """Update watcher metrics when a filesystem event is detected."""
+        self.events_detected += 1
+        self.events_by_type[event_type] += 1
     
     def stop(self) -> Dict[str, any]:
         """
@@ -321,10 +360,6 @@ class FileWatcher:
                 change = self.change_queue.get_nowait()
                 changes.append(change.to_dict())
                 
-                # Update statistics
-                self.events_detected += 1
-                self.events_by_type[change.event_type] += 1
-                
             except Empty:
                 break
         
@@ -354,7 +389,10 @@ class FileWatcher:
 _file_watcher_instance: Optional[FileWatcher] = None
 
 
-def get_file_watcher(repo_path: str) -> FileWatcher:
+def get_file_watcher(
+    repo_path: str,
+    maintenance_queue: Optional[ChangeQueue] = None,
+) -> FileWatcher:
     """
     Get or create a global file watcher instance.
     
@@ -367,6 +405,10 @@ def get_file_watcher(repo_path: str) -> FileWatcher:
     global _file_watcher_instance
     
     if _file_watcher_instance is None:
-        _file_watcher_instance = FileWatcher(repo_path)
+        _file_watcher_instance = FileWatcher(repo_path, maintenance_queue)
+    else:
+        _file_watcher_instance.repo_path = repo_path
+        if maintenance_queue is not None:
+            _file_watcher_instance.maintenance_queue = maintenance_queue
     
     return _file_watcher_instance

@@ -14,7 +14,8 @@ from typing import List, Optional, Dict, Any
 from app.services.targeted_graph_updater import TargetedGraphUpdater
 from app.services.invalidation_service import InvalidationService
 from app.services.maintenance_worker import get_maintenance_worker
-from app.services.change_queue import ChangeQueue
+from app.services.change_queue import get_change_queue
+from app.services.re_analyzer import ReAnalyzer
 from app.db.neo4j_driver import get_neo4j_driver
 from app.models.code_structures import FileReport
 
@@ -42,6 +43,14 @@ class QueueFileChangeRequest(BaseModel):
     """Request to manually queue a file change for processing."""
     file_path: str
     change_type: str  # "modified", "added", or "deleted"
+
+
+class WorkspaceFileChangeRequest(BaseModel):
+    """Production-style file change sent by the VS Code extension."""
+    file_path: str
+    change_type: str  # "modified", "added", or "deleted"
+    content: Optional[str] = None
+    workspace_id: Optional[str] = None
 
 
 @router.post("/targeted-graph-update", tags=["Maintenance"])
@@ -146,6 +155,73 @@ async def invalidate_and_update(request: InvalidateAndUpdateRequest):
         )
 
 
+@router.post("/workspace-file-change", tags=["Maintenance", "Extension"])
+async def workspace_file_change(request: WorkspaceFileChangeRequest):
+    """
+    Update the graph from a file-change event supplied by the VS Code extension.
+
+    This endpoint is the production-friendly maintenance path: the extension has
+    direct access to the user's workspace, so it sends the relative file path and
+    current file content. The backend does not need a Docker bind mount or a
+    fixed repository path.
+    """
+    try:
+        driver = get_neo4j_driver()
+        invalidator = InvalidationService(driver)
+
+        change_type = request.change_type.lower()
+        if change_type == "deleted":
+            invalidation_stats = await invalidator.invalidate_file(request.file_path)
+            return {
+                "status": "success",
+                "change_type": change_type,
+                "file_path": request.file_path,
+                "invalidation": invalidation_stats,
+            }
+
+        if change_type not in {"added", "modified"}:
+            raise HTTPException(
+                status_code=400,
+                detail="change_type must be one of: added, modified, deleted",
+            )
+
+        if request.content is None:
+            raise HTTPException(
+                status_code=400,
+                detail="content is required for added or modified files",
+            )
+
+        re_analyzer = ReAnalyzer()
+        file_report = re_analyzer.analyze_file(request.file_path, request.content)
+        if file_report is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not analyze Python file: {request.file_path}",
+            )
+
+        updater = TargetedGraphUpdater(driver)
+        result = await updater.invalidate_and_update_file(
+            file_path=request.file_path,
+            file_report=file_report,
+            invalidation_service=invalidator,
+        )
+
+        return {
+            "status": "success",
+            "change_type": change_type,
+            "file_path": request.file_path,
+            "workspace_id": request.workspace_id,
+            "data": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process workspace file change: {str(e)}",
+        )
+
+
 @router.get("/graph-update-status", tags=["Maintenance"])
 async def graph_update_status():
     """
@@ -239,8 +315,7 @@ async def start_maintenance_worker():
         Status dictionary with worker state
     """
     try:
-        change_queue = ChangeQueue()
-        worker = get_maintenance_worker(change_queue)
+        worker = get_maintenance_worker(get_change_queue())
         result = worker.start()
         return result
     except Exception as e:

@@ -11,6 +11,34 @@ interface FileContent {
   content: string;
 }
 
+const BACKEND_URL = "http://localhost:8000/api/v1";
+
+function isPythonDocument(document: vscode.TextDocument): boolean {
+  return (
+    document.uri.scheme === "file" &&
+    (document.languageId === "python" || document.uri.fsPath.endsWith(".py"))
+  );
+}
+
+function getWorkspaceId(): string | undefined {
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+async function sendWorkspaceFileChange(
+  uri: vscode.Uri,
+  changeType: "added" | "modified" | "deleted",
+  content?: string,
+) {
+  const filePath = vscode.workspace.asRelativePath(uri, false);
+
+  await axios.post(`${BACKEND_URL}/workspace-file-change`, {
+    file_path: filePath,
+    change_type: changeType,
+    content,
+    workspace_id: getWorkspaceId(),
+  });
+}
+
 export function activate(context: vscode.ExtensionContext) {
   console.log(
     'Congratulations, your extension "repoalign-frontend" is now active!',
@@ -24,7 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
     "repoalign.healthCheck",
     async () => {
       try {
-        const response = await axios.get("http://localhost:8000/api/v1/health");
+        const response = await axios.get(`${BACKEND_URL}/health`);
         if (response.data.status === "ok") {
           vscode.window.showInformationMessage("RepoAlign Backend is running!");
         } else {
@@ -91,7 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             // 3. Send the data to the backend for graph construction
-            await axios.post("http://localhost:8000/api/v1/build-graph", {
+            await axios.post(`${BACKEND_URL}/build-graph`, {
               files: fileContents,
             });
 
@@ -216,7 +244,7 @@ export function activate(context: vscode.ExtensionContext) {
               }
 
               const response = await axios.post(
-                "http://localhost:8000/api/v1/generate-patch",
+                `${BACKEND_URL}/generate-patch`,
                 {
                   query: instruction,
                   original_content: originalContent,
@@ -409,6 +437,51 @@ export function activate(context: vscode.ExtensionContext) {
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
+    vscode.workspace.onDidSaveTextDocument(async (document) => {
+      if (!isPythonDocument(document)) {
+        return;
+      }
+
+      try {
+        await sendWorkspaceFileChange(
+          document.uri,
+          "modified",
+          document.getText(),
+        );
+        console.log(`RepoAlign synced modified file: ${document.uri.fsPath}`);
+      } catch (error) {
+        console.error("RepoAlign failed to sync saved file:", error);
+      }
+    }),
+    vscode.workspace.onDidCreateFiles(async (event) => {
+      for (const uri of event.files) {
+        if (!uri.fsPath.endsWith(".py")) {
+          continue;
+        }
+
+        try {
+          const document = await vscode.workspace.openTextDocument(uri);
+          await sendWorkspaceFileChange(uri, "added", document.getText());
+          console.log(`RepoAlign synced added file: ${uri.fsPath}`);
+        } catch (error) {
+          console.error("RepoAlign failed to sync created file:", error);
+        }
+      }
+    }),
+    vscode.workspace.onDidDeleteFiles(async (event) => {
+      for (const uri of event.files) {
+        if (!uri.fsPath.endsWith(".py")) {
+          continue;
+        }
+
+        try {
+          await sendWorkspaceFileChange(uri, "deleted");
+          console.log(`RepoAlign synced deleted file: ${uri.fsPath}`);
+        } catch (error) {
+          console.error("RepoAlign failed to sync deleted file:", error);
+        }
+      }
+    }),
   );
 }
 

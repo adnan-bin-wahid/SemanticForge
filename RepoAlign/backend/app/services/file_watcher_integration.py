@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Any
 
 from app.services.file_watcher import get_file_watcher, FileWatcher
+from app.services.change_queue import get_change_queue
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def start_file_watcher(repo_path: str) -> Dict[str, Any]:
     logger.info(f"[PHASE 8.1] Starting file watcher for {repo_path}")
     
     try:
-        watcher = get_file_watcher(repo_path)
+        watcher = get_file_watcher(repo_path, get_change_queue())
         result = watcher.start()
         
         if result.get("status") == "started":

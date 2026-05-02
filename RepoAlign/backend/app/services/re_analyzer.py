@@ -21,6 +21,9 @@ from enum import Enum
 from pathlib import Path
 import inspect
 
+from app.models.code_structures import FileReport, FunctionDef, ClassDef, ImportDef
+from app.utils.structure_extractor import StructureExtractor
+
 logger = logging.getLogger(__name__)
 
 
@@ -494,6 +497,28 @@ class ReAnalyzer:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+
+    def analyze_file(self, file_path: str, file_content: str) -> Optional[FileReport]:
+        """
+        Analyze the current contents of a changed file into a FileReport.
+
+        The maintenance worker uses this after AST diffing so Phase 8.7 can
+        write fresh file-level structure back to the graph.
+        """
+        try:
+            tree = ast.parse(file_content)
+            extractor = StructureExtractor(file_content)
+            extractor.visit(tree)
+
+            return FileReport(
+                file_path=file_path,
+                functions=[FunctionDef(**function) for function in extractor.functions],
+                classes=[ClassDef(**class_def) for class_def in extractor.classes],
+                imports=[ImportDef(**import_def) for import_def in extractor.imports],
+            )
+        except Exception as e:
+            logger.error(f"[PHASE 8.6] Failed to analyze file {file_path}: {e}", exc_info=True)
+            return None
     
     def re_analyze_symbols(
         self,

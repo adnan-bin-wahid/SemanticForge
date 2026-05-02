@@ -29,25 +29,33 @@ Phase 8.9 implements comprehensive API endpoints for administrative control, mon
 ### 1. Control Endpoints (Start/Stop/Pause/Resume)
 
 #### POST `/agent-control/start`
+
 Starts the maintenance agent worker thread.
+
 - **Returns**: `{"status": "started", "message": "...", "data": {...}}`
 - **Behavior**: Logs START event, clears pause flag
 - **Idempotent**: Returns "already_running" if already active
 
 #### POST `/agent-control/stop`
+
 Gracefully stops the maintenance agent.
+
 - **Returns**: `{"status": "stopped", "message": "...", "data": {...}}`
 - **Behavior**: Logs STOP event, clears pause flag
 - **Idempotent**: Safe to call multiple times
 
 #### POST `/agent-control/pause`
+
 Pauses agent without stopping it (queue operations continue, processing pauses).
+
 - **Returns**: `{"status": "paused", "message": "...", "data": {"paused": true}}`
 - **Use case**: Maintenance windows, testing
 - **Effect**: Sets internal pause flag; worker checks this before processing
 
 #### POST `/agent-control/resume`
+
 Resumes a paused agent.
+
 - **Returns**: `{"status": "resumed", "message": "...", "data": {"paused": false}}`
 - **Validation**: Returns warning if not paused
 - **Effect**: Clears pause flag; worker resumes processing queue
@@ -55,7 +63,9 @@ Resumes a paused agent.
 ### 2. Status & Health Endpoints
 
 #### GET `/agent-control/status`
+
 Comprehensive agent status including worker and control state.
+
 - **Returns**:
   ```json
   {
@@ -69,7 +79,9 @@ Comprehensive agent status including worker and control state.
   ```
 
 #### GET `/agent-control/health`
+
 Health check endpoint for monitoring systems.
+
 - **Returns**:
   ```json
   {
@@ -88,14 +100,18 @@ Health check endpoint for monitoring systems.
 - **Status Determination**: Healthy if running, not paused, and no errors
 
 #### GET `/agent-control/summary`
+
 Quick summary of agent operational state.
+
 - **Returns**: Key metrics including running state, queue size, files processed, uptime
 - **Use case**: Dashboard displays, quick status checks
 
 ### 3. Configuration Endpoints
 
 #### GET `/agent-control/config`
+
 Get current agent configuration.
+
 - **Returns**:
   ```json
   {
@@ -110,7 +126,9 @@ Get current agent configuration.
   ```
 
 #### POST `/agent-control/config`
+
 Update agent configuration.
+
 - **Request Body**: AgentConfig model (same structure as above)
 - **Returns**: Updated configuration
 - **Behavior**: Logs CONFIG_UPDATE event
@@ -119,7 +137,9 @@ Update agent configuration.
 ### 4. Metrics & Monitoring Endpoints
 
 #### GET `/agent-control/metrics`
+
 Detailed metrics from worker, queue, and control systems.
+
 - **Returns**:
   ```json
   {
@@ -146,7 +166,9 @@ Detailed metrics from worker, queue, and control systems.
   ```
 
 #### GET `/agent-control/events?limit=50`
+
 Get recent agent events (audit trail).
+
 - **Query Parameters**: `limit` (default: 50, max 100)
 - **Returns**: List of events with type, message, timestamp, data
 - **Event Types**: START, STOP, PAUSE, RESUME, RESTART, CONFIG_UPDATE, QUEUE_CLEARED, ERROR, ERROR_CLEARED
@@ -155,8 +177,10 @@ Get recent agent events (audit trail).
 ### 5. Administrative Endpoints
 
 #### POST `/agent-control/restart`
+
 Restart the agent (stop + start).
-- **Behavior**: 
+
+- **Behavior**:
   1. Stops worker
   2. Clears pause state
   3. Starts worker
@@ -164,13 +188,17 @@ Restart the agent (stop + start).
 - **Use case**: Recovery from deadlock, state reset, graceful reboot
 
 #### POST `/agent-control/clear-error`
+
 Clear error state.
+
 - **Returns**: `{"status": "ok", "message": "Error state cleared"}`
 - **Behavior**: Logs ERROR_CLEARED event
 - **Effect**: Allows agent to recover from error conditions
 
 #### POST `/agent-control/clear-queue`
+
 Clear all pending file changes from queue.
+
 - **Returns**: `{"status": "ok", "data": {"cleared_count": int}}`
 - **Behavior**: Logs QUEUE_CLEARED event
 - **Use case**: Emergency operation, clearing stuck items
@@ -191,6 +219,7 @@ All endpoints follow a standardized response format:
 ## Error Handling
 
 All endpoints include try-catch blocks:
+
 - Exceptions logged and recorded in control state
 - Error recorded with timestamp
 - Client receives meaningful error message
@@ -199,30 +228,33 @@ All endpoints include try-catch blocks:
 ## Integration with Phase 8.8
 
 Phase 8.9 endpoints complement Phase 8.8 features:
+
 - **Phase 8.8 Worker Control**: Basic start/stop (5 endpoints)
 - **Phase 8.9 Enhanced Control**: Advanced administration (13 endpoints)
 
 ### Endpoint Mapping
-| Phase 8.8 | Phase 8.9 | Enhancement |
-|-----------|-----------|-------------|
-| start-maintenance-worker | /agent-control/start | Improved naming, event logging |
-| stop-maintenance-worker | /agent-control/stop | Improved naming, event logging |
-| maintenance-worker-status | /agent-control/status | Enhanced data structure |
-| queue-file-change | (separate endpoint) | Not part of control layer |
-| clear-maintenance-queue | /agent-control/clear-queue | Improved naming |
-| NEW | /agent-control/pause | Pause without stopping |
-| NEW | /agent-control/resume | Resume from pause |
-| NEW | /agent-control/health | Health check format |
-| NEW | /agent-control/summary | Quick status summary |
-| NEW | /agent-control/config | Configuration management |
-| NEW | /agent-control/events | Event audit trail |
-| NEW | /agent-control/metrics | Detailed metrics |
-| NEW | /agent-control/restart | Graceful restart |
-| NEW | /agent-control/clear-error | Error state management |
+
+| Phase 8.8                 | Phase 8.9                  | Enhancement                    |
+| ------------------------- | -------------------------- | ------------------------------ |
+| start-maintenance-worker  | /agent-control/start       | Improved naming, event logging |
+| stop-maintenance-worker   | /agent-control/stop        | Improved naming, event logging |
+| maintenance-worker-status | /agent-control/status      | Enhanced data structure        |
+| queue-file-change         | (separate endpoint)        | Not part of control layer      |
+| clear-maintenance-queue   | /agent-control/clear-queue | Improved naming                |
+| NEW                       | /agent-control/pause       | Pause without stopping         |
+| NEW                       | /agent-control/resume      | Resume from pause              |
+| NEW                       | /agent-control/health      | Health check format            |
+| NEW                       | /agent-control/summary     | Quick status summary           |
+| NEW                       | /agent-control/config      | Configuration management       |
+| NEW                       | /agent-control/events      | Event audit trail              |
+| NEW                       | /agent-control/metrics     | Detailed metrics               |
+| NEW                       | /agent-control/restart     | Graceful restart               |
+| NEW                       | /agent-control/clear-error | Error state management         |
 
 ## Usage Examples
 
 ### Basic Operations
+
 ```bash
 # Start the agent
 curl -X POST http://localhost:8000/api/v1/agent-control/start
@@ -244,6 +276,7 @@ curl -X POST http://localhost:8000/api/v1/agent-control/stop
 ```
 
 ### Monitoring & Metrics
+
 ```bash
 # Get detailed metrics
 curl http://localhost:8000/api/v1/agent-control/metrics
@@ -256,6 +289,7 @@ curl http://localhost:8000/api/v1/agent-control/status
 ```
 
 ### Configuration Management
+
 ```bash
 # Get current config
 curl http://localhost:8000/api/v1/agent-control/config
@@ -272,6 +306,7 @@ curl -X POST http://localhost:8000/api/v1/agent-control/config \
 ```
 
 ### Error Recovery
+
 ```bash
 # Clear error state
 curl -X POST http://localhost:8000/api/v1/agent-control/clear-error
@@ -286,6 +321,7 @@ curl -X POST http://localhost:8000/api/v1/agent-control/restart
 ## Implementation Details
 
 ### File Structure
+
 - **agent_control.py**: 550+ lines
   - `AgentControlState` class
   - `AgentConfig` Pydantic model
@@ -294,18 +330,21 @@ curl -X POST http://localhost:8000/api/v1/agent-control/restart
   - Router registration
 
 ### Dependencies
+
 - `fastapi`: Web framework
 - `pydantic`: Data validation
 - `datetime`: Timestamps
 - `logging`: Event logging
 
 ### Global State
+
 - Single `_control_state` instance per application lifecycle
 - Thread-safe operations via Python's GIL
 - Event log limited to 100 most recent events
 - Configuration persists for session duration
 
 ### Error Handling Strategy
+
 1. Try to execute endpoint operation
 2. On exception:
    - Log error with `control_state.set_error()`
@@ -316,6 +355,7 @@ curl -X POST http://localhost:8000/api/v1/agent-control/restart
 ## Testing Results
 
 ✅ All 13 endpoints tested and working:
+
 - Control flow (start/stop/pause/resume/restart)
 - Status monitoring (status/health/summary)
 - Metrics collection (metrics/events)
@@ -323,6 +363,7 @@ curl -X POST http://localhost:8000/api/v1/agent-control/restart
 - Error handling (clear-error/clear-queue)
 
 Sample test results:
+
 ```
 POST /agent-control/start → {"status": "started", ...}
 GET /agent-control/health → {"status": "healthy", ...}
@@ -346,6 +387,7 @@ POST /agent-control/restart → {"status": "restarted", ...}
 ## Conclusion
 
 Phase 8.9 completes the administrative control layer for the incremental maintenance agent. The 13 endpoints provide comprehensive visibility and control for:
+
 - Starting/stopping the agent
 - Pausing/resuming operations
 - Monitoring health and metrics

@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 from pathlib import Path
 
-from app.services.change_queue import ChangeQueue, FileChangeRequest, FileChangeType
+from app.services.change_queue import ChangeQueue, FileChangeRequest, FileChangeType, get_change_queue
 from app.services.ast_differ import ASTDiffer, SymbolChange, SymbolChangeType
 from app.services.invalidation_service import InvalidationService
 from app.services.re_analyzer import ReAnalyzer
@@ -299,7 +299,7 @@ class MaintenanceWorker:
         )
         
         try:
-            file_path = change_request.file_path
+            file_path = self._normalize_file_path(change_request.file_path)
             
             # Special handling for deleted files
             if change_request.change_type == FileChangeType.DELETED:
@@ -310,16 +310,19 @@ class MaintenanceWorker:
                 return result
             
             # Get file content from disk
-            full_path = Path(self.repo_root) / file_path
+            full_path = Path(file_path)
+            if not full_path.is_absolute():
+                full_path = Path(self.repo_root) / file_path
+
             if not full_path.exists():
                 result.error_message = f"File not found: {full_path}"
                 result.success = False
                 return result
             
-            new_content = full_path.read_text()
+            new_content = full_path.read_text(encoding="utf-8")
             
             # Create AST differ for this specific file
-            ast_differ = ASTDiffer(str(full_path))
+            ast_differ = ASTDiffer(str(full_path), repo_root=self.repo_root)
             
             # Run AST diff to find symbol changes
             symbol_changes = ast_differ.diff_file("HEAD")
@@ -398,6 +401,17 @@ class MaintenanceWorker:
             result.duration_ms = duration
         
         return result
+
+    def _normalize_file_path(self, file_path: str) -> str:
+        """Return a repo-relative path when the change detector gives an absolute path."""
+        path = Path(file_path)
+        if not path.is_absolute():
+            return file_path
+
+        try:
+            return str(path.relative_to(Path(self.repo_root)))
+        except ValueError:
+            return str(path)
     
     def queue_file_change(self, file_path: str, change_type: str) -> Dict:
         """
@@ -447,7 +461,10 @@ class MaintenanceWorker:
 _maintenance_worker: Optional[MaintenanceWorker] = None
 
 
-def get_maintenance_worker(change_queue: Optional[ChangeQueue] = None) -> MaintenanceWorker:
+def get_maintenance_worker(
+    change_queue: Optional[ChangeQueue] = None,
+    repo_root: Optional[str] = None,
+) -> MaintenanceWorker:
     """
     Get or create the global maintenance worker instance.
     
@@ -461,7 +478,12 @@ def get_maintenance_worker(change_queue: Optional[ChangeQueue] = None) -> Mainte
     
     if _maintenance_worker is None:
         if change_queue is None:
-            change_queue = ChangeQueue()
-        _maintenance_worker = MaintenanceWorker(change_queue)
+            change_queue = get_change_queue()
+        _maintenance_worker = MaintenanceWorker(
+            change_queue,
+            repo_root=repo_root or "/app/test-project",
+        )
+    elif repo_root and not _maintenance_worker.running:
+        _maintenance_worker.repo_root = repo_root
     
     return _maintenance_worker

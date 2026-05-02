@@ -17,6 +17,7 @@ from fastapi import APIRouter
 
 from app.services.maintenance_worker import get_maintenance_worker
 from app.services.change_queue import get_change_queue
+from app.services.file_watcher import get_file_watcher
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ router = APIRouter()
 
 class AgentConfig(BaseModel):
     """Agent configuration parameters"""
+    repo_path: str = "/app/test-project"
+    change_detection: str = "watchdog"
     max_queue_size: int = 1000
     processing_batch_size: int = 1
     processing_interval_ms: int = 500
@@ -121,12 +124,20 @@ def _make_response(status: str, message: str, data: Optional[Dict] = None) -> Di
 async def agent_start():
     """Start the maintenance agent"""
     try:
-        worker = get_maintenance_worker()
-        result = worker.start()
         control_state = get_control_state()
+        queue = get_change_queue()
+        worker = get_maintenance_worker(queue, repo_root=control_state.config.repo_path)
+        watcher = get_file_watcher(control_state.config.repo_path, queue)
+
+        watcher_result = watcher.start()
+        result = worker.start()
         control_state.paused = False
-        control_state.log_event("START", "Agent started")
-        return _make_response("started", "Agent started successfully", result)
+        control_state.log_event("START", "Full maintenance loop started")
+        return _make_response(
+            "started",
+            "Maintenance loop started successfully",
+            {"worker": result, "watcher": watcher_result},
+        )
     except Exception as e:
         control_state = get_control_state()
         control_state.set_error(f"Failed to start agent: {str(e)}")
@@ -138,11 +149,20 @@ async def agent_stop():
     """Stop the maintenance agent"""
     try:
         worker = get_maintenance_worker()
+        watcher = get_file_watcher(get_control_state().config.repo_path)
+        watcher_result = watcher.stop() if watcher.is_running else {
+            "status": "not_running",
+            "message": "File watcher is not running",
+        }
         result = worker.stop()
         control_state = get_control_state()
         control_state.paused = False
-        control_state.log_event("STOP", "Agent stopped")
-        return _make_response("stopped", "Agent stopped successfully", result)
+        control_state.log_event("STOP", "Full maintenance loop stopped")
+        return _make_response(
+            "stopped",
+            "Maintenance loop stopped successfully",
+            {"worker": result, "watcher": watcher_result},
+        )
     except Exception as e:
         control_state = get_control_state()
         control_state.set_error(f"Failed to stop agent: {str(e)}")
@@ -191,15 +211,18 @@ async def agent_resume():
 async def agent_status():
     """Get comprehensive agent status"""
     try:
+        control_state = get_control_state()
         worker = get_maintenance_worker()
         queue = get_change_queue()
-        control_state = get_control_state()
+        watcher = get_file_watcher(control_state.config.repo_path, queue)
         
         worker_status = worker.get_status()
         queue_status = queue.get_queue_status()
+        watcher_status = watcher.get_status()
         
         status_data = {
             "worker": worker_status,
+            "watcher": watcher_status,
             "queue": queue_status,
             "control": {
                 "paused": control_state.paused,
@@ -219,15 +242,22 @@ async def agent_health():
     try:
         worker = get_maintenance_worker()
         control_state = get_control_state()
+        watcher = get_file_watcher(control_state.config.repo_path, get_change_queue())
         
         health = {
             "agent_running": worker.running,
+            "watcher_running": watcher.is_running,
             "agent_state": worker.state.value,
             "agent_paused": control_state.paused,
             "queue_size": get_change_queue().get_queue_status()["queue_size"],
             "error_state": control_state.last_error is not None,
             "uptime_seconds": worker.metrics.uptime_seconds,
-            "healthy": worker.running and not control_state.paused and control_state.last_error is None
+            "healthy": (
+                worker.running
+                and watcher.is_running
+                and not control_state.paused
+                and control_state.last_error is None
+            )
         }
         
         status = "healthy" if health["healthy"] else "degraded"
@@ -291,6 +321,8 @@ async def restart_agent():
         control_state = get_control_state()
         
         # Stop
+        watcher = get_file_watcher(control_state.config.repo_path, get_change_queue())
+        watcher.stop()
         worker.stop()
         control_state.log_event("RESTART", "Stopping agent for restart")
         
@@ -298,13 +330,14 @@ async def restart_agent():
         control_state.paused = False
         
         # Start
+        watcher_result = watcher.start()
         result = worker.start()
         control_state.log_event("RESTART", "Agent restarted")
         
         return _make_response(
             "restarted",
             "Agent restarted successfully",
-            result
+            {"worker": result, "watcher": watcher_result}
         )
     except Exception as e:
         control_state = get_control_state()
@@ -328,12 +361,14 @@ async def clear_agent_error():
 async def get_agent_metrics():
     """Get detailed agent metrics"""
     try:
+        control_state = get_control_state()
         worker = get_maintenance_worker()
         queue = get_change_queue()
-        control_state = get_control_state()
+        watcher = get_file_watcher(control_state.config.repo_path, queue)
         
         metrics = {
             "worker_metrics": worker.metrics.to_dict(),
+            "watcher_metrics": watcher.get_status(),
             "queue_metrics": queue.get_queue_status(),
             "control_metrics": {
                 "paused": control_state.paused,
@@ -370,12 +405,14 @@ async def clear_agent_queue():
 async def get_agent_summary():
     """Get a quick summary of agent state"""
     try:
+        control_state = get_control_state()
         worker = get_maintenance_worker()
         queue = get_change_queue()
-        control_state = get_control_state()
+        watcher = get_file_watcher(control_state.config.repo_path, queue)
         
         summary = {
             "running": worker.running,
+            "watcher_running": watcher.is_running,
             "state": worker.state.value,
             "paused": control_state.paused,
             "queue_size": queue.get_queue_status()["queue_size"],
@@ -383,7 +420,7 @@ async def get_agent_summary():
             "files_failed": worker.metrics.files_failed,
             "symbols_updated": worker.metrics.total_symbols_updated,
             "uptime_minutes": round(worker.metrics.uptime_seconds / 60, 2),
-            "healthy": worker.running and not control_state.paused
+            "healthy": worker.running and watcher.is_running and not control_state.paused
         }
         
         return _make_response("ok", "Agent summary retrieved", summary)

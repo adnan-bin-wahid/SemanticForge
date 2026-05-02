@@ -163,8 +163,9 @@ class ASTSymbolExtractor(ast.NodeVisitor):
 class ASTDiffer:
     """Compares ASTs of old and new file versions to find changes"""
     
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, repo_root: str = "/app/test-project"):
         self.file_path = file_path
+        self.repo_root = repo_root
         logger.info(f"[PHASE 8.4] ASTDiffer initialized for {file_path}")
     
     def get_git_file_content(self, commit: str = "HEAD") -> Optional[str]:
@@ -179,7 +180,7 @@ class ASTDiffer:
         """
         try:
             # Convert absolute path to relative path for git
-            repo_path = "/app/test-project"  # TODO: Make configurable
+            repo_path = self.repo_root
             
             # Get relative path from repo root
             if self.file_path.startswith(repo_path):
