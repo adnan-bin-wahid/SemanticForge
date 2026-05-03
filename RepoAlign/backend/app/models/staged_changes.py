@@ -20,6 +20,7 @@ class ChangedSymbol(BaseModel):
     endLine: int
     changedLines: list[int] = Field(default_factory=list)
     content: str
+    filePath: Optional[str] = None
 
 
 class StagedFileChange(BaseModel):
@@ -61,11 +62,35 @@ class CommitBlockingFinding(BaseModel):
     validation_status: Literal["passed", "warning", "failed"]
 
 
+class PatternCandidate(BaseModel):
+    name: str
+    type: str
+    score: float
+    path: Optional[str] = None
+    content: Optional[str] = None
+
+
+class PatternSummary(BaseModel):
+    convention: str
+    examples: list[str] = Field(default_factory=list)
+    structural_features: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatternDetectionResult(BaseModel):
+    changed_symbol: str
+    candidates: list[PatternCandidate] = Field(default_factory=list)
+    summary: Optional[PatternSummary] = None
+    mismatch_score: float = 0.0
+    confidence: float = 0.0
+    findings: list[CommitBlockingFinding] = Field(default_factory=list)
+
+
 class CommitAnalysisResponse(BaseModel):
     status: Literal["ok"]
     recommendation: Literal["ready", "review", "blocked"]
     summary: CommitAnalysisSummary
     changed_symbols: list[ChangedSymbol]
     findings: list[CommitBlockingFinding] = Field(default_factory=list)
+    pattern_results: list[PatternDetectionResult] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
     retrieved_context: dict[str, Any] = Field(default_factory=dict)

@@ -95,6 +95,7 @@ interface ChangedSymbol {
   endLine: number;
   changedLines: number[];
   content: string;
+  filePath?: string;
 }
 
 interface StagedFilePayload extends StagedFileChange {
@@ -126,6 +127,7 @@ interface CommitAnalysisResponse {
   status: "ok";
   recommendation: "ready" | "review" | "blocked";
   findings: CommitBlockingFinding[];
+  pattern_results?: PatternDetectionResult[];
   diagnostics: string[];
   summary: {
     total_files: number;
@@ -137,9 +139,38 @@ interface CommitAnalysisResponse {
   };
 }
 
+interface PatternDetectionResult {
+  changed_symbol: string;
+  mismatch_score: number;
+  confidence: number;
+  candidates?: Array<{
+    name: string;
+    type: string;
+    score: number;
+    path?: string;
+    content?: string;
+  }>;
+  summary?: {
+    convention: string;
+    examples: string[];
+    structural_features: Record<string, unknown>;
+  };
+  findings: CommitBlockingFinding[];
+}
+
+interface StoredIgnoreDecision {
+  type: "once" | "pattern";
+  key: string;
+  reason: string;
+  createdAt: string;
+}
+
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
 const INDEXING_STATE_KEY = "repoalign.indexingState";
+const IGNORE_DECISIONS_KEY = "repoalign.ignoreDecisions";
 const outputChannel = vscode.window.createOutputChannel("RepoAlign");
+let extensionContext: vscode.ExtensionContext;
+let lastActiveFindings: CommitBlockingFinding[] = [];
 
 function getRepoAlignConfig(): RepoAlignConfig {
   const config = vscode.workspace.getConfiguration("repoalign");
@@ -386,6 +417,141 @@ function notifyRepoAlignError(title: string, error: unknown): void {
   vscode.window.showErrorMessage(`${title}: ${message}`);
 }
 
+function getFindingKey(finding: CommitBlockingFinding): string {
+  return [
+    finding.affected_file,
+    finding.affected_symbol ?? "",
+    finding.matched_pattern ?? "",
+    finding.reason,
+  ].join("|");
+}
+
+function getIgnoreDecisions(
+  context: vscode.ExtensionContext,
+): StoredIgnoreDecision[] {
+  return context.workspaceState.get<StoredIgnoreDecision[]>(
+    IGNORE_DECISIONS_KEY,
+    [],
+  );
+}
+
+async function saveIgnoreDecisions(
+  context: vscode.ExtensionContext,
+  decisions: StoredIgnoreDecision[],
+): Promise<void> {
+  await context.workspaceState.update(IGNORE_DECISIONS_KEY, decisions);
+}
+
+function applyIgnoreDecisions(
+  context: vscode.ExtensionContext,
+  findings: CommitBlockingFinding[],
+): { active: CommitBlockingFinding[]; ignored: CommitBlockingFinding[] } {
+  const decisions = getIgnoreDecisions(context);
+  const onceKeys = new Set(
+    decisions.filter((decision) => decision.type === "once").map((decision) => decision.key),
+  );
+  const ignoredPatterns = new Set(
+    decisions.filter((decision) => decision.type === "pattern").map((decision) => decision.key),
+  );
+
+  const active: CommitBlockingFinding[] = [];
+  const ignored: CommitBlockingFinding[] = [];
+
+  for (const finding of findings) {
+    const key = getFindingKey(finding);
+    const pattern = finding.matched_pattern ?? "";
+    if (onceKeys.has(key) || (pattern && ignoredPatterns.has(pattern))) {
+      ignored.push(finding);
+    } else {
+      active.push(finding);
+    }
+  }
+
+  return { active, ignored };
+}
+
+async function ignoreFindingOnce(context: vscode.ExtensionContext): Promise<void> {
+  if (!lastActiveFindings.length) {
+    vscode.window.showInformationMessage("RepoAlign has no active findings to ignore.");
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    lastActiveFindings.map((finding) => ({
+      label: finding.matched_pattern ?? finding.severity,
+      description: finding.affected_symbol
+        ? `${finding.affected_file} :: ${finding.affected_symbol}`
+        : finding.affected_file,
+      detail: finding.reason,
+      finding,
+    })),
+    { placeHolder: "Select a RepoAlign finding to ignore once." },
+  );
+
+  if (!picked) {
+    return;
+  }
+
+  const decisions = getIgnoreDecisions(context);
+  decisions.push({
+    type: "once",
+    key: getFindingKey(picked.finding),
+    reason: picked.finding.reason,
+    createdAt: new Date().toISOString(),
+  });
+  await saveIgnoreDecisions(context, decisions);
+  vscode.window.showInformationMessage("RepoAlign will ignore that finding once.");
+}
+
+async function ignoreFindingPattern(context: vscode.ExtensionContext): Promise<void> {
+  const patterns = Array.from(
+    new Set(
+      lastActiveFindings
+        .map((finding) => finding.matched_pattern)
+        .filter((pattern): pattern is string => Boolean(pattern)),
+    ),
+  );
+
+  if (!patterns.length) {
+    vscode.window.showInformationMessage("RepoAlign has no finding patterns to ignore.");
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(patterns, {
+    placeHolder: "Select a RepoAlign finding pattern to ignore for this workspace.",
+  });
+
+  if (!picked) {
+    return;
+  }
+
+  const decisions = getIgnoreDecisions(context);
+  decisions.push({
+    type: "pattern",
+    key: picked,
+    reason: `Ignored pattern ${picked}`,
+    createdAt: new Date().toISOString(),
+  });
+  await saveIgnoreDecisions(context, decisions);
+  vscode.window.showInformationMessage(`RepoAlign will ignore pattern: ${picked}`);
+}
+
+async function clearIgnoredFindings(context: vscode.ExtensionContext): Promise<void> {
+  await saveIgnoreDecisions(context, []);
+  vscode.window.showInformationMessage("RepoAlign ignored finding decisions cleared.");
+}
+
+async function consumeIgnoreOnceDecisions(
+  context: vscode.ExtensionContext,
+  findings: CommitBlockingFinding[],
+): Promise<void> {
+  const consumed = new Set(findings.map(getFindingKey));
+  const remaining = getIgnoreDecisions(context).filter(
+    (decision) => decision.type !== "once" || !consumed.has(decision.key),
+  );
+  await saveIgnoreDecisions(context, remaining);
+}
+
 async function runGit(
   workspaceFolder: vscode.WorkspaceFolder,
   args: string[],
@@ -612,7 +778,10 @@ function mapHunksToSymbols(
 ): ChangedSymbol[] {
   const changedLines = new Set<number>();
   for (const hunk of hunks) {
-    const lines = useOldLines ? hunk.changedOldLines : hunk.changedNewLines;
+    const lines =
+      useOldLines || hunk.changedNewLines.length === 0
+        ? hunk.changedOldLines
+        : [...hunk.changedNewLines, ...hunk.changedOldLines];
     for (const line of lines) {
       changedLines.add(line);
     }
@@ -680,7 +849,10 @@ async function buildStagedAnalysisPayload(
       hunks,
       changedSymbols:
         language === "python"
-          ? mapHunksToSymbols(symbolContent, hunks, useOldLines)
+          ? mapHunksToSymbols(symbolContent, hunks, useOldLines).map((symbol) => ({
+              ...symbol,
+              filePath: file.path,
+            }))
           : [],
     });
   }
@@ -696,14 +868,28 @@ async function buildStagedAnalysisPayload(
 function writeCommitAnalysisReport(
   payload: StagedAnalysisPayload,
   analysis: CommitAnalysisResponse,
+  ignoredFindings: CommitBlockingFinding[] = [],
 ): void {
+  const ignoreDecisions = getIgnoreDecisions(extensionContext);
+
   outputChannel.clear();
   outputChannel.appendLine("RepoAlign Commit Analysis");
   outputChannel.appendLine("");
+  outputChannel.appendLine("Debug Snapshot");
+  outputChannel.appendLine("--------------");
+  outputChannel.appendLine(`Timestamp: ${new Date().toISOString()}`);
+  outputChannel.appendLine(`Workspace: ${payload.workspaceName}`);
+  outputChannel.appendLine(`Workspace ID: ${payload.workspaceId ?? "n/a"}`);
+  outputChannel.appendLine(`Backend URL: ${payload.backendUrl}`);
+  outputChannel.appendLine(`Backend status: ${analysis.status}`);
   outputChannel.appendLine(`Recommendation: ${analysis.recommendation}`);
   outputChannel.appendLine(`Files: ${analysis.summary.total_files}`);
   outputChannel.appendLine(`Python files: ${analysis.summary.python_files}`);
   outputChannel.appendLine(`Changed symbols: ${analysis.summary.total_changed_symbols}`);
+  outputChannel.appendLine(`Pattern results: ${analysis.pattern_results?.length ?? 0}`);
+  outputChannel.appendLine(`Active findings: ${analysis.findings.length}`);
+  outputChannel.appendLine(`Ignored findings: ${ignoredFindings.length}`);
+  outputChannel.appendLine(`Stored ignore decisions: ${ignoreDecisions.length}`);
   outputChannel.appendLine(`Lines: +${analysis.summary.additions}/-${analysis.summary.deletions}`);
   outputChannel.appendLine("");
   outputChannel.appendLine("Staged Files");
@@ -713,6 +899,74 @@ function writeCommitAnalysisReport(
     outputChannel.appendLine(
       `${file.status} ${file.path} (${file.hunks.length} hunk(s), ${file.changedSymbols.length} symbol(s))`,
     );
+    outputChannel.appendLine(
+      `  language=${file.language}, oldContent=${file.oldContent.length} chars, newContent=${file.newContent.length} chars`,
+    );
+    if (!file.hunks.length) {
+      outputChannel.appendLine("  warning: no parsed hunks for this staged file");
+    }
+    for (const hunk of file.hunks.slice(0, 5)) {
+      outputChannel.appendLine(
+        `  hunk ${hunk.header} oldChanged=[${hunk.changedOldLines.join(",")}] newChanged=[${hunk.changedNewLines.join(",")}]`,
+      );
+    }
+    if (!file.changedSymbols.length && file.language === "python") {
+      outputChannel.appendLine(
+        "  warning: no changed Python symbols mapped from staged hunks",
+      );
+    }
+    for (const symbol of file.changedSymbols) {
+      outputChannel.appendLine(
+        `  symbol ${symbol.type} ${symbol.name} lines ${symbol.startLine}-${symbol.endLine}, changedLines=[${symbol.changedLines.join(",")}]`,
+      );
+    }
+  }
+
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Pattern Detection");
+  outputChannel.appendLine("-----------------");
+  if (!analysis.pattern_results?.length) {
+    outputChannel.appendLine("No pattern_results returned by backend.");
+    outputChannel.appendLine(
+      "Likely causes: no changed symbols, embeddings not indexed, graph not built, or backend pattern detection failed.",
+    );
+  } else {
+    for (const result of analysis.pattern_results) {
+      outputChannel.appendLine(
+        `Symbol: ${result.changed_symbol} mismatch=${result.mismatch_score.toFixed(3)} confidence=${result.confidence.toFixed(3)} findings=${result.findings.length}`,
+      );
+      if (result.summary) {
+        outputChannel.appendLine(`  convention: ${result.summary.convention}`);
+        outputChannel.appendLine(
+          `  examples: ${result.summary.examples.join(", ") || "none"}`,
+        );
+        outputChannel.appendLine(
+          `  structural_features: ${JSON.stringify(result.summary.structural_features)}`,
+        );
+      } else {
+        outputChannel.appendLine("  warning: no pattern summary returned");
+      }
+      if (!result.candidates?.length) {
+        outputChannel.appendLine(
+          "  warning: no similar candidates returned. Rebuild graph and re-index embeddings before Phase 11 tests.",
+        );
+      } else {
+        outputChannel.appendLine("  candidates:");
+        for (const candidate of result.candidates) {
+          outputChannel.appendLine(
+            `    - ${candidate.name} (${candidate.type}) score=${candidate.score.toFixed(3)} path=${candidate.path ?? "n/a"} content=${candidate.content?.length ?? 0} chars`,
+          );
+        }
+      }
+      if (result.findings.length) {
+        outputChannel.appendLine("  raw pattern findings:");
+        for (const finding of result.findings) {
+          outputChannel.appendLine(
+            `    - [${finding.severity}] ${finding.matched_pattern ?? "finding"}: ${finding.reason}`,
+          );
+        }
+      }
+    }
   }
 
   outputChannel.appendLine("");
@@ -737,6 +991,7 @@ function writeCommitAnalysisReport(
         outputChannel.appendLine(`  suggested fix: ${finding.suggested_fix}`);
       }
       outputChannel.appendLine(`  validation: ${finding.validation_status}`);
+      outputChannel.appendLine(`  ignore key: ${getFindingKey(finding)}`);
     }
   }
 
@@ -748,6 +1003,38 @@ function writeCommitAnalysisReport(
       outputChannel.appendLine(diagnostic);
     }
   }
+
+  if (ignoredFindings.length) {
+    outputChannel.appendLine("");
+    outputChannel.appendLine("Ignored Findings");
+    outputChannel.appendLine("----------------");
+    for (const finding of ignoredFindings) {
+      outputChannel.appendLine(
+        `[ignored] ${finding.matched_pattern ?? "finding"} in ${finding.affected_file}`,
+      );
+      outputChannel.appendLine(`  reason: ${finding.reason}`);
+      outputChannel.appendLine(`  ignore key: ${getFindingKey(finding)}`);
+    }
+  }
+
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Stored Ignore Decisions");
+  outputChannel.appendLine("-----------------------");
+  if (!ignoreDecisions.length) {
+    outputChannel.appendLine("None.");
+  } else {
+    for (const decision of ignoreDecisions) {
+      outputChannel.appendLine(
+        `${decision.type}: ${decision.key} (${decision.createdAt})`,
+      );
+      outputChannel.appendLine(`  reason: ${decision.reason}`);
+    }
+  }
+
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Raw Backend Response");
+  outputChannel.appendLine("--------------------");
+  outputChannel.appendLine(JSON.stringify(analysis, null, 2));
 
   outputChannel.show(true);
 }
@@ -922,13 +1209,51 @@ async function requestStagedAnalysis(
     throw new Error("No staged changes found. Stage files before committing with analysis.");
   }
 
-  const response = await axios.post<CommitAnalysisResponse>(
-    `${getRepoAlignConfig().backendUrl}/analyze-staged-changes`,
-    payload,
-    { timeout: 120000 },
-  );
+  try {
+    const response = await axios.post<CommitAnalysisResponse>(
+      `${getRepoAlignConfig().backendUrl}/analyze-staged-changes`,
+      payload,
+      { timeout: 120000 },
+    );
 
-  return { payload, analysis: response.data };
+    return { payload, analysis: response.data };
+  } catch (error) {
+    outputChannel.clear();
+    outputChannel.appendLine("RepoAlign Staged Analysis Request Failed");
+    outputChannel.appendLine("");
+    outputChannel.appendLine(`Backend URL: ${getRepoAlignConfig().backendUrl}`);
+    outputChannel.appendLine(`Workspace: ${payload.workspaceName}`);
+    outputChannel.appendLine(`Files: ${payload.files.length}`);
+    outputChannel.appendLine(
+      `Changed symbols: ${payload.files.reduce((total, file) => total + file.changedSymbols.length, 0)}`,
+    );
+    outputChannel.appendLine("");
+    outputChannel.appendLine("Request Files");
+    outputChannel.appendLine("-------------");
+    for (const file of payload.files) {
+      outputChannel.appendLine(
+        `${file.status} ${file.path}: hunks=${file.hunks.length}, symbols=${file.changedSymbols.length}, old=${file.oldContent.length}, new=${file.newContent.length}`,
+      );
+      for (const symbol of file.changedSymbols) {
+        outputChannel.appendLine(
+          `  symbol ${symbol.type} ${symbol.name} lines ${symbol.startLine}-${symbol.endLine}`,
+        );
+      }
+    }
+    outputChannel.appendLine("");
+    outputChannel.appendLine("Error");
+    outputChannel.appendLine("-----");
+    outputChannel.appendLine(getErrorMessage(error));
+    if (axios.isAxiosError(error)) {
+      outputChannel.appendLine("");
+      outputChannel.appendLine(`HTTP status: ${error.response?.status ?? "n/a"}`);
+      outputChannel.appendLine(
+        `Response body: ${JSON.stringify(error.response?.data ?? null, null, 2)}`,
+      );
+    }
+    outputChannel.show(true);
+    throw error;
+  }
 }
 
 async function inspectStagedChanges(): Promise<void> {
@@ -1030,9 +1355,13 @@ async function analyzeStagedChanges(): Promise<void> {
     async (progress) => {
       progress.report({ increment: 20, message: "Parsing staged diff..." });
       const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
+      const filtered = applyIgnoreDecisions(extensionContext, analysis.findings);
+      analysis.findings = filtered.active;
+      lastActiveFindings = filtered.active;
 
       progress.report({ increment: 40, message: "Commit analysis complete." });
-      writeCommitAnalysisReport(payload, analysis);
+      writeCommitAnalysisReport(payload, analysis, filtered.ignored);
+      await consumeIgnoreOnceDecisions(extensionContext, filtered.ignored);
       vscode.window.showInformationMessage(
         `RepoAlign staged analysis complete. Recommendation: ${analysis.recommendation}. Your Git commit/push flow was not changed.`,
       );
@@ -1065,9 +1394,16 @@ async function commitWithAnalysis(): Promise<void> {
     async (progress) => {
       progress.report({ increment: 15, message: "Analyzing staged changes..." });
       const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
-      writeCommitAnalysisReport(payload, analysis);
+      const filtered = applyIgnoreDecisions(extensionContext, analysis.findings);
+      analysis.findings = filtered.active;
+      lastActiveFindings = filtered.active;
+      writeCommitAnalysisReport(payload, analysis, filtered.ignored);
+      await consumeIgnoreOnceDecisions(extensionContext, filtered.ignored);
 
-      if (analysis.recommendation === "blocked") {
+      const hasActiveBlocker = filtered.active.some(
+        (finding) => finding.severity === "blocker",
+      );
+      if (analysis.recommendation === "blocked" && hasActiveBlocker) {
         vscode.window.showErrorMessage(
           "RepoAlign blocked this commit. Review the RepoAlign output findings, fix the staged change, and try again.",
         );
@@ -1762,6 +2098,7 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionContext = context;
   outputChannel.appendLine("RepoAlign extension activated.");
 
   // Validation panel for displaying patch validation results
@@ -1917,6 +2254,21 @@ export function activate(context: vscode.ExtensionContext) {
         notifyRepoAlignError("RepoAlign hook removal failed", error);
       }
     },
+  );
+
+  const ignoreFindingOnceDisposable = vscode.commands.registerCommand(
+    "repoalign.ignoreFindingOnce",
+    async () => ignoreFindingOnce(context),
+  );
+
+  const ignoreFindingPatternDisposable = vscode.commands.registerCommand(
+    "repoalign.ignoreFindingPattern",
+    async () => ignoreFindingPattern(context),
+  );
+
+  const clearIgnoredFindingsDisposable = vscode.commands.registerCommand(
+    "repoalign.clearIgnoredFindings",
+    async () => clearIgnoredFindings(context),
   );
 
   // Command for backend health check
@@ -2291,6 +2643,9 @@ export function activate(context: vscode.ExtensionContext) {
     commitWithAnalysisDisposable,
     installPreCommitHookDisposable,
     removePreCommitHookDisposable,
+    ignoreFindingOnceDisposable,
+    ignoreFindingPatternDisposable,
+    clearIgnoredFindingsDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,

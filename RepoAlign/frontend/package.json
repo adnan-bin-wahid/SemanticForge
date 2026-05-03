@@ -24,6 +24,9 @@
     "onCommand:repoalign.commitWithAnalysis",
     "onCommand:repoalign.installPreCommitHook",
     "onCommand:repoalign.removePreCommitHook",
+    "onCommand:repoalign.ignoreFindingOnce",
+    "onCommand:repoalign.ignoreFindingPattern",
+    "onCommand:repoalign.clearIgnoredFindings",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -78,6 +81,18 @@
       {
         "command": "repoalign.removePreCommitHook",
         "title": "RepoAlign: Remove Pre-Commit Hook"
+      },
+      {
+        "command": "repoalign.ignoreFindingOnce",
+        "title": "RepoAlign: Ignore Finding Once"
+      },
+      {
+        "command": "repoalign.ignoreFindingPattern",
+        "title": "RepoAlign: Ignore Finding Pattern"
+      },
+      {
+        "command": "repoalign.clearIgnoredFindings",
+        "title": "RepoAlign: Clear Ignored Findings"
       },
       {
         "command": "repoalign.healthCheck",

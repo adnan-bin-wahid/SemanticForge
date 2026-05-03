@@ -1,0 +1,72 @@
+[
+  {
+    "id": "aligned-service-helper-call",
+    "label": "aligned",
+    "description": "Uses the same validation and service helper shape as existing handlers.",
+    "changed_symbol": "create_user",
+    "expected_recommendation": "ready"
+  },
+  {
+    "id": "drift-missing-validation-helper",
+    "label": "deviating",
+    "description": "Similar endpoint omits the common validation helper used by matched examples.",
+    "changed_symbol": "create_user",
+    "expected_finding_pattern": "helper-call-drift"
+  },
+  {
+    "id": "drift-return-style",
+    "label": "deviating",
+    "description": "Similar service returns a tuple while repository examples return dictionaries.",
+    "changed_symbol": "build_response",
+    "expected_finding_pattern": "return-style-drift"
+  },
+  {
+    "id": "aligned-exception-flow",
+    "label": "aligned",
+    "description": "Keeps the same try/except behavior as similar repository functions.",
+    "changed_symbol": "load_config",
+    "expected_recommendation": "ready"
+  },
+  {
+    "id": "drift-exception-flow",
+    "label": "deviating",
+    "description": "Adds local exception swallowing where matched examples raise upstream.",
+    "changed_symbol": "load_config",
+    "expected_finding_pattern": "exception-flow-drift"
+  },
+  {
+    "id": "drift-signature-shape",
+    "label": "deviating",
+    "description": "Adds extra parameters to a function family that usually takes a compact request object.",
+    "changed_symbol": "update_project",
+    "expected_finding_pattern": "signature-shape-drift"
+  },
+  {
+    "id": "aligned-class-constructor",
+    "label": "aligned",
+    "description": "Class constructor follows the same dependency injection shape as matched classes.",
+    "changed_symbol": "ProjectAnalyzer",
+    "expected_recommendation": "ready"
+  },
+  {
+    "id": "drift-layer-boundary-helper",
+    "label": "deviating",
+    "description": "Controller-like function directly performs work usually delegated to a service helper.",
+    "changed_symbol": "delete_account",
+    "expected_finding_pattern": "helper-call-drift"
+  },
+  {
+    "id": "blocked-syntax",
+    "label": "blocked",
+    "description": "Staged Python syntax error should produce a blocking validation finding.",
+    "changed_symbol": "broken_handler",
+    "expected_finding_pattern": "python-syntax-error"
+  },
+  {
+    "id": "review-large-scope",
+    "label": "review",
+    "description": "Many changed symbols should produce a review recommendation even without blocker findings.",
+    "changed_symbol": "*",
+    "expected_finding_pattern": "large-symbol-scope"
+  }
+]

@@ -62,6 +62,9 @@ $commands = @($package.contributes.commands)
   "repoalign.commitWithAnalysis",
   "repoalign.installPreCommitHook",
   "repoalign.removePreCommitHook",
+  "repoalign.ignoreFindingOnce",
+  "repoalign.ignoreFindingPattern",
+  "repoalign.clearIgnoredFindings",
   "repoalign.generatePatch"
 ) | ForEach-Object { Assert-Command -Commands $commands -Command $_ }
 

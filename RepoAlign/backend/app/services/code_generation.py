@@ -115,6 +115,18 @@ class CodeGenerator:
                 prompt += "\n"
         else:
             prompt += "No existing code structure found.\n\n"
+
+        # Section 3.5: Repository Convention Requirements
+        prompt += "## Repository Convention Requirements\n"
+        prompt += """Before writing code, infer the repository's conventions from the examples above and preserve them:
+- Match common error handling and exception propagation style.
+- Match common return shapes and response structures.
+- Reuse existing helper/service calls instead of bypassing established layers.
+- Keep function signatures consistent with similar symbols unless the user explicitly asks otherwise.
+- Preserve imports, validation flow, and type-contract style seen in the retrieved examples.
+- Do not introduce a structurally different implementation when a semantically similar repository pattern exists.
+
+"""
         
         # Section 4: Generation Guidelines
         prompt += "## Code Generation Guidelines\n"

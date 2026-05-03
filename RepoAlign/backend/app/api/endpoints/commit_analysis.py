@@ -8,6 +8,7 @@ from app.models.staged_changes import (
     CommitAnalysisResponse,
     CommitAnalysisSummary,
 )
+from app.services.pattern_detection import detect_repository_patterns
 
 router = APIRouter()
 
@@ -151,6 +152,7 @@ async def analyze_staged_changes(
     diagnostics, findings = _validate_staged_python(request)
     findings.extend(_build_scope_findings(request, summary))
     retrieved_context = {}
+    pattern_results = []
 
     if changed_symbols:
         query = " ".join(symbol.name for symbol in changed_symbols[:10])
@@ -160,12 +162,24 @@ async def analyze_staged_changes(
         except Exception as e:
             diagnostics.append(f"context retrieval unavailable: {str(e)}")
 
+        try:
+            graph_expansion = fastapi_req.app.state.graph_expansion_service
+            pattern_results = await detect_repository_patterns(
+                changed_symbols,
+                graph_expansion,
+            )
+            for result in pattern_results:
+                findings.extend(result.findings)
+        except Exception as e:
+            diagnostics.append(f"pattern detection unavailable: {str(e)}")
+
     return CommitAnalysisResponse(
         status="ok",
         recommendation=_recommend(summary, diagnostics, findings),
         summary=summary,
         changed_symbols=changed_symbols,
         findings=findings,
+        pattern_results=pattern_results,
         diagnostics=diagnostics,
         retrieved_context=retrieved_context,
     )
