@@ -224,15 +224,13 @@ function getRepoAlignConfig(): RepoAlignConfig {
 }
 
 function getFolderExcludeGlobs(folders: string[]): string[] {
-  return folders
-    .filter(Boolean)
-    .flatMap((folder) => {
-      if (folder.includes("/") || folder.includes("\\")) {
-        return [folder.replace(/\\/g, "/")];
-      }
+  return folders.filter(Boolean).flatMap((folder) => {
+    if (folder.includes("/") || folder.includes("\\")) {
+      return [folder.replace(/\\/g, "/")];
+    }
 
-      return [`**/${folder}/**`];
-    });
+    return [`**/${folder}/**`];
+  });
 }
 
 function getExcludeGlob(extraFolders: string[] = []): string {
@@ -293,7 +291,9 @@ function matchesExcludedGlob(
 
 function shouldSyncUri(uri: vscode.Uri): boolean {
   const config = getRepoAlignConfig();
-  const relativePath = vscode.workspace.asRelativePath(uri, false).replace(/\\/g, "/");
+  const relativePath = vscode.workspace
+    .asRelativePath(uri, false)
+    .replace(/\\/g, "/");
   const pathParts = relativePath.split("/").filter(Boolean);
   const basename = pathParts[pathParts.length - 1] ?? "";
 
@@ -455,10 +455,14 @@ function applyIgnoreDecisions(
 ): { active: CommitBlockingFinding[]; ignored: CommitBlockingFinding[] } {
   const decisions = getIgnoreDecisions(context);
   const onceKeys = new Set(
-    decisions.filter((decision) => decision.type === "once").map((decision) => decision.key),
+    decisions
+      .filter((decision) => decision.type === "once")
+      .map((decision) => decision.key),
   );
   const ignoredPatterns = new Set(
-    decisions.filter((decision) => decision.type === "pattern").map((decision) => decision.key),
+    decisions
+      .filter((decision) => decision.type === "pattern")
+      .map((decision) => decision.key),
   );
 
   const active: CommitBlockingFinding[] = [];
@@ -477,9 +481,13 @@ function applyIgnoreDecisions(
   return { active, ignored };
 }
 
-async function ignoreFindingOnce(context: vscode.ExtensionContext): Promise<void> {
+async function ignoreFindingOnce(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   if (!lastActiveFindings.length) {
-    vscode.window.showInformationMessage("RepoAlign has no active findings to ignore.");
+    vscode.window.showInformationMessage(
+      "RepoAlign has no active findings to ignore.",
+    );
     return;
   }
 
@@ -507,10 +515,14 @@ async function ignoreFindingOnce(context: vscode.ExtensionContext): Promise<void
     createdAt: new Date().toISOString(),
   });
   await saveIgnoreDecisions(context, decisions);
-  vscode.window.showInformationMessage("RepoAlign will ignore that finding once.");
+  vscode.window.showInformationMessage(
+    "RepoAlign will ignore that finding once.",
+  );
 }
 
-async function ignoreFindingPattern(context: vscode.ExtensionContext): Promise<void> {
+async function ignoreFindingPattern(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   const patterns = Array.from(
     new Set(
       lastActiveFindings
@@ -520,12 +532,15 @@ async function ignoreFindingPattern(context: vscode.ExtensionContext): Promise<v
   );
 
   if (!patterns.length) {
-    vscode.window.showInformationMessage("RepoAlign has no finding patterns to ignore.");
+    vscode.window.showInformationMessage(
+      "RepoAlign has no finding patterns to ignore.",
+    );
     return;
   }
 
   const picked = await vscode.window.showQuickPick(patterns, {
-    placeHolder: "Select a RepoAlign finding pattern to ignore for this workspace.",
+    placeHolder:
+      "Select a RepoAlign finding pattern to ignore for this workspace.",
   });
 
   if (!picked) {
@@ -540,12 +555,18 @@ async function ignoreFindingPattern(context: vscode.ExtensionContext): Promise<v
     createdAt: new Date().toISOString(),
   });
   await saveIgnoreDecisions(context, decisions);
-  vscode.window.showInformationMessage(`RepoAlign will ignore pattern: ${picked}`);
+  vscode.window.showInformationMessage(
+    `RepoAlign will ignore pattern: ${picked}`,
+  );
 }
 
-async function clearIgnoredFindings(context: vscode.ExtensionContext): Promise<void> {
+async function clearIgnoredFindings(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   await saveIgnoreDecisions(context, []);
-  vscode.window.showInformationMessage("RepoAlign ignored finding decisions cleared.");
+  vscode.window.showInformationMessage(
+    "RepoAlign ignored finding decisions cleared.",
+  );
 }
 
 async function consumeIgnoreOnceDecisions(
@@ -636,7 +657,10 @@ function mergeStagedNumstat(
   changes: StagedFileChange[],
   output: string,
 ): StagedFileChange[] {
-  const countsByPath = new Map<string, { additions?: number; deletions?: number }>();
+  const countsByPath = new Map<
+    string,
+    { additions?: number; deletions?: number }
+  >();
 
   for (const line of output.split(/\r?\n/).filter(Boolean)) {
     const parts = line.split("\t");
@@ -694,8 +718,9 @@ function parseUnifiedDiff(diff: string): Map<string, StagedDiffHunk[]> {
 
     if (line.startsWith("@@ ")) {
       finishHunk();
-      const match =
-        /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line);
+      const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(
+        line,
+      );
       if (!match) {
         continue;
       }
@@ -743,7 +768,8 @@ function getPythonSymbols(content: string): ChangedSymbol[] {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const match = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line);
+    const match =
+      /^(\s*)(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line);
     if (!match) {
       continue;
     }
@@ -758,7 +784,8 @@ function getPythonSymbols(content: string): ChangedSymbol[] {
         continue;
       }
 
-      const nextIndent = nextLine.match(/^\s*/)?.[0].replace(/\t/g, "    ").length ?? 0;
+      const nextIndent =
+        nextLine.match(/^\s*/)?.[0].replace(/\t/g, "    ").length ?? 0;
       if (nextIndent <= indent) {
         endLine = nextIndex;
         break;
@@ -856,10 +883,12 @@ async function buildStagedAnalysisPayload(
       hunks,
       changedSymbols:
         language === "python"
-          ? mapHunksToSymbols(symbolContent, hunks, useOldLines).map((symbol) => ({
-              ...symbol,
-              filePath: file.path,
-            }))
+          ? mapHunksToSymbols(symbolContent, hunks, useOldLines).map(
+              (symbol) => ({
+                ...symbol,
+                filePath: file.path,
+              }),
+            )
           : [],
     });
   }
@@ -892,12 +921,20 @@ function writeCommitAnalysisReport(
   outputChannel.appendLine(`Recommendation: ${analysis.recommendation}`);
   outputChannel.appendLine(`Files: ${analysis.summary.total_files}`);
   outputChannel.appendLine(`Python files: ${analysis.summary.python_files}`);
-  outputChannel.appendLine(`Changed symbols: ${analysis.summary.total_changed_symbols}`);
-  outputChannel.appendLine(`Pattern results: ${analysis.pattern_results?.length ?? 0}`);
+  outputChannel.appendLine(
+    `Changed symbols: ${analysis.summary.total_changed_symbols}`,
+  );
+  outputChannel.appendLine(
+    `Pattern results: ${analysis.pattern_results?.length ?? 0}`,
+  );
   outputChannel.appendLine(`Active findings: ${analysis.findings.length}`);
   outputChannel.appendLine(`Ignored findings: ${ignoredFindings.length}`);
-  outputChannel.appendLine(`Stored ignore decisions: ${ignoreDecisions.length}`);
-  outputChannel.appendLine(`Lines: +${analysis.summary.additions}/-${analysis.summary.deletions}`);
+  outputChannel.appendLine(
+    `Stored ignore decisions: ${ignoreDecisions.length}`,
+  );
+  outputChannel.appendLine(
+    `Lines: +${analysis.summary.additions}/-${analysis.summary.deletions}`,
+  );
   outputChannel.appendLine("");
   outputChannel.appendLine("Staged Files");
   outputChannel.appendLine("------------");
@@ -910,7 +947,9 @@ function writeCommitAnalysisReport(
       `  language=${file.language}, oldContent=${file.oldContent.length} chars, newContent=${file.newContent.length} chars`,
     );
     if (!file.hunks.length) {
-      outputChannel.appendLine("  warning: no parsed hunks for this staged file");
+      outputChannel.appendLine(
+        "  warning: no parsed hunks for this staged file",
+      );
     }
     for (const hunk of file.hunks.slice(0, 5)) {
       outputChannel.appendLine(
@@ -1129,7 +1168,9 @@ PY
 async function getGitHooksPath(
   workspaceFolder: vscode.WorkspaceFolder,
 ): Promise<string> {
-  const gitDir = (await runGit(workspaceFolder, ["rev-parse", "--git-dir"])).trim();
+  const gitDir = (
+    await runGit(workspaceFolder, ["rev-parse", "--git-dir"])
+  ).trim();
   const hooksPath = path.isAbsolute(gitDir)
     ? path.join(gitDir, "hooks")
     : path.join(workspaceFolder.uri.fsPath, gitDir, "hooks");
@@ -1139,12 +1180,16 @@ async function getGitHooksPath(
 async function installPreCommitHook(): Promise<void> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
-    vscode.window.showWarningMessage("Open a Git workspace before installing the RepoAlign hook.");
+    vscode.window.showWarningMessage(
+      "Open a Git workspace before installing the RepoAlign hook.",
+    );
     return;
   }
 
   if (!(await hasGitRepository(workspaceFolder))) {
-    vscode.window.showWarningMessage("RepoAlign hook installation needs a Git repository.");
+    vscode.window.showWarningMessage(
+      "RepoAlign hook installation needs a Git repository.",
+    );
     return;
   }
 
@@ -1170,10 +1215,14 @@ async function installPreCommitHook(): Promise<void> {
   await vscode.workspace.fs.writeFile(hookUri, content);
 
   if (process.platform !== "win32") {
-    await execFileAsync("chmod", ["755", hookUri.fsPath], { windowsHide: true });
+    await execFileAsync("chmod", ["755", hookUri.fsPath], {
+      windowsHide: true,
+    });
   }
 
-  outputChannel.appendLine(`Installed RepoAlign pre-commit hook: ${hookUri.fsPath}`);
+  outputChannel.appendLine(
+    `Installed RepoAlign pre-commit hook: ${hookUri.fsPath}`,
+  );
   outputChannel.show(true);
   vscode.window.showInformationMessage(
     "RepoAlign pre-commit hook installed for this repository. Push remains normal; commits can bypass with --no-verify.",
@@ -1183,11 +1232,15 @@ async function installPreCommitHook(): Promise<void> {
 async function removePreCommitHook(): Promise<void> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
-    vscode.window.showWarningMessage("Open a Git workspace before removing the RepoAlign hook.");
+    vscode.window.showWarningMessage(
+      "Open a Git workspace before removing the RepoAlign hook.",
+    );
     return;
   }
 
-  const hookUri = vscode.Uri.file(path.join(await getGitHooksPath(workspaceFolder), "pre-commit"));
+  const hookUri = vscode.Uri.file(
+    path.join(await getGitHooksPath(workspaceFolder), "pre-commit"),
+  );
 
   try {
     const existing = await vscode.workspace.fs.readFile(hookUri);
@@ -1200,20 +1253,29 @@ async function removePreCommitHook(): Promise<void> {
     }
 
     await vscode.workspace.fs.delete(hookUri);
-    outputChannel.appendLine(`Removed RepoAlign pre-commit hook: ${hookUri.fsPath}`);
+    outputChannel.appendLine(
+      `Removed RepoAlign pre-commit hook: ${hookUri.fsPath}`,
+    );
     outputChannel.show(true);
     vscode.window.showInformationMessage("RepoAlign pre-commit hook removed.");
   } catch {
-    vscode.window.showInformationMessage("No RepoAlign pre-commit hook was found.");
+    vscode.window.showInformationMessage(
+      "No RepoAlign pre-commit hook was found.",
+    );
   }
 }
 
 async function requestStagedAnalysis(
   workspaceFolder: vscode.WorkspaceFolder,
-): Promise<{ payload: StagedAnalysisPayload; analysis: CommitAnalysisResponse }> {
+): Promise<{
+  payload: StagedAnalysisPayload;
+  analysis: CommitAnalysisResponse;
+}> {
   const payload = await buildStagedAnalysisPayload(workspaceFolder);
   if (payload.files.length === 0) {
-    throw new Error("No staged changes found. Stage files before committing with analysis.");
+    throw new Error(
+      "No staged changes found. Stage files before committing with analysis.",
+    );
   }
 
   try {
@@ -1253,7 +1315,9 @@ async function requestStagedAnalysis(
     outputChannel.appendLine(getErrorMessage(error));
     if (axios.isAxiosError(error)) {
       outputChannel.appendLine("");
-      outputChannel.appendLine(`HTTP status: ${error.response?.status ?? "n/a"}`);
+      outputChannel.appendLine(
+        `HTTP status: ${error.response?.status ?? "n/a"}`,
+      );
       outputChannel.appendLine(
         `Response body: ${JSON.stringify(error.response?.data ?? null, null, 2)}`,
       );
@@ -1361,8 +1425,12 @@ async function analyzeStagedChanges(): Promise<void> {
     },
     async (progress) => {
       progress.report({ increment: 20, message: "Parsing staged diff..." });
-      const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
-      const filtered = applyIgnoreDecisions(extensionContext, analysis.findings);
+      const { payload, analysis } =
+        await requestStagedAnalysis(workspaceFolder);
+      const filtered = applyIgnoreDecisions(
+        extensionContext,
+        analysis.findings,
+      );
       analysis.findings = filtered.active;
       lastActiveFindings = filtered.active;
 
@@ -1408,9 +1476,16 @@ async function commitWithAnalysis(): Promise<void> {
       cancellable: false,
     },
     async (progress) => {
-      progress.report({ increment: 15, message: "Analyzing staged changes..." });
-      const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
-      const filtered = applyIgnoreDecisions(extensionContext, analysis.findings);
+      progress.report({
+        increment: 15,
+        message: "Analyzing staged changes...",
+      });
+      const { payload, analysis } =
+        await requestStagedAnalysis(workspaceFolder);
+      const filtered = applyIgnoreDecisions(
+        extensionContext,
+        analysis.findings,
+      );
       analysis.findings = filtered.active;
       lastActiveFindings = filtered.active;
       writeCommitAnalysisReport(payload, analysis, filtered.ignored);
@@ -1462,7 +1537,9 @@ async function commitWithAnalysis(): Promise<void> {
       });
 
       if (!commitMessage?.trim()) {
-        vscode.window.showInformationMessage("RepoAlign commit cancelled: no commit message provided.");
+        vscode.window.showInformationMessage(
+          "RepoAlign commit cancelled: no commit message provided.",
+        );
         return;
       }
 
@@ -1477,9 +1554,13 @@ async function commitWithAnalysis(): Promise<void> {
       outputChannel.appendLine("");
       outputChannel.appendLine("Git Commit Result");
       outputChannel.appendLine("-----------------");
-      outputChannel.appendLine(result.stdout.trim() || result.stderr.trim() || "Commit completed.");
+      outputChannel.appendLine(
+        result.stdout.trim() || result.stderr.trim() || "Commit completed.",
+      );
       outputChannel.appendLine("");
-      outputChannel.appendLine(`Analysis event: passed at ${new Date().toISOString()}`);
+      outputChannel.appendLine(
+        `Analysis event: passed at ${new Date().toISOString()}`,
+      );
       outputChannel.show(true);
       vscode.window.showInformationMessage(
         "RepoAlign analysis passed and Git commit completed. Push flow remains normal.",
@@ -1686,7 +1767,9 @@ async function runInitialRepositoryIndexing(
 
   const readiness = await runBackendReadinessCheck();
   if (!readiness?.ready) {
-    throw new Error("Backend readiness check failed. See RepoAlign output for details.");
+    throw new Error(
+      "Backend readiness check failed. See RepoAlign output for details.",
+    );
   }
 
   if (token.isCancellationRequested) {
@@ -1814,13 +1897,22 @@ async function runReindexEmbeddings(): Promise<void> {
       progress.report({ increment: 10, message: "Checking backend..." });
       const readiness = await runBackendReadinessCheck();
       if (!readiness?.ready) {
-        throw new Error("Backend readiness check failed. See RepoAlign output for details.");
+        throw new Error(
+          "Backend readiness check failed. See RepoAlign output for details.",
+        );
       }
 
-      progress.report({ increment: 40, message: "Indexing symbols into Qdrant..." });
-      const response = await axios.post(`${config.backendUrl}/index-embeddings`, {}, {
-        timeout: 180000,
+      progress.report({
+        increment: 40,
+        message: "Indexing symbols into Qdrant...",
       });
+      const response = await axios.post(
+        `${config.backendUrl}/index-embeddings`,
+        {},
+        {
+          timeout: 180000,
+        },
+      );
 
       progress.report({ increment: 50, message: "Embeddings indexed." });
       outputChannel.clear();
@@ -1861,11 +1953,14 @@ async function runResetWorkspaceIndex(
     },
     async (progress) => {
       progress.report({ increment: 20, message: "Sending reset request..." });
-      const response = await axios.post(`${config.backendUrl}/workspace-index/reset`, {
-        workspace_id: getWorkspaceId(),
-        clear_graph: true,
-        clear_embeddings: true,
-      });
+      const response = await axios.post(
+        `${config.backendUrl}/workspace-index/reset`,
+        {
+          workspace_id: getWorkspaceId(),
+          clear_graph: true,
+          clear_embeddings: true,
+        },
+      );
 
       await clearIndexingState(context);
 
@@ -1882,7 +1977,9 @@ async function runResetWorkspaceIndex(
   );
 }
 
-async function runBackendReadinessCheck(): Promise<ReadinessResponse | undefined> {
+async function runBackendReadinessCheck(): Promise<
+  ReadinessResponse | undefined
+> {
   const config = getRepoAlignConfig();
 
   try {
@@ -1905,7 +2002,9 @@ async function runBackendReadinessCheck(): Promise<ReadinessResponse | undefined
         .filter(([, service]) => service.status !== "ok")
         .map(([name, service]) => `${name}: ${service.message}`)
         .join(" | ");
-      vscode.window.showWarningMessage(`RepoAlign backend is not ready. ${failed}`);
+      vscode.window.showWarningMessage(
+        `RepoAlign backend is not ready. ${failed}`,
+      );
       outputChannel.show(true);
     }
 
@@ -2192,7 +2291,12 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async (progress, token) => {
           try {
-            await runInitialRepositoryIndexing(context, validation, progress, token);
+            await runInitialRepositoryIndexing(
+              context,
+              validation,
+              progress,
+              token,
+            );
           } catch (error) {
             const message = getErrorMessage(error);
             await saveIndexingState(
@@ -2239,7 +2343,10 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         await inspectStagedChanges();
       } catch (error) {
-        notifyRepoAlignError("RepoAlign staged change inspection failed", error);
+        notifyRepoAlignError(
+          "RepoAlign staged change inspection failed",
+          error,
+        );
       }
     },
   );
@@ -2250,7 +2357,11 @@ export function activate(context: vscode.ExtensionContext) {
       let panel = getFindingsPanel();
       if (!panel) {
         panel = createFindingsPanel(extensionContext);
-        updateFindingsPanel(panel, null, vscode.workspace.workspaceFolders?.[0]?.name || "Workspace");
+        updateFindingsPanel(
+          panel,
+          null,
+          vscode.workspace.workspaceFolders?.[0]?.name || "Workspace",
+        );
       }
       panel.reveal(vscode.ViewColumn.Beside);
     },
@@ -2365,7 +2476,12 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async (progress, token) => {
           try {
-            await runInitialRepositoryIndexing(context, validation, progress, token);
+            await runInitialRepositoryIndexing(
+              context,
+              validation,
+              progress,
+              token,
+            );
           } catch (error) {
             const message = getErrorMessage(error);
             await saveIndexingState(
@@ -2380,7 +2496,9 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine("");
             outputChannel.appendLine(`Indexing failed: ${message}`);
             outputChannel.show(true);
-            vscode.window.showErrorMessage(`RepoAlign indexing failed: ${message}`);
+            vscode.window.showErrorMessage(
+              `RepoAlign indexing failed: ${message}`,
+            );
           }
         },
       );
@@ -2498,11 +2616,12 @@ export function activate(context: vscode.ExtensionContext) {
                   limit: 10,
                   strict: repoAlignConfig.validationMode === "full",
                   // Optional validation parameters (only if workspace available)
-                  ...(dockerRepoPath && repoAlignConfig.validationMode !== "off" && {
-                    repo_path: dockerRepoPath,
-                    file_relative_path: filePath,
-                    run_tests: repoAlignConfig.validationMode === "full",
-                  }),
+                  ...(dockerRepoPath &&
+                    repoAlignConfig.validationMode !== "off" && {
+                      repo_path: dockerRepoPath,
+                      file_relative_path: filePath,
+                      run_tests: repoAlignConfig.validationMode === "full",
+                    }),
                 },
                 {
                   timeout: 330000, // 330 seconds (5.5 minutes) to account for 300s backend + overhead
@@ -2713,7 +2832,9 @@ export function activate(context: vscode.ExtensionContext) {
           "modified",
           document.getText(),
         );
-        outputChannel.appendLine(`Synced modified file: ${vscode.workspace.asRelativePath(document.uri, false)}`);
+        outputChannel.appendLine(
+          `Synced modified file: ${vscode.workspace.asRelativePath(document.uri, false)}`,
+        );
       } catch (error) {
         notifyRepoAlignError("RepoAlign failed to sync saved file", error);
       }
@@ -2735,7 +2856,9 @@ export function activate(context: vscode.ExtensionContext) {
         try {
           const document = await vscode.workspace.openTextDocument(uri);
           await sendWorkspaceFileChange(uri, "added", document.getText());
-          outputChannel.appendLine(`Synced added file: ${vscode.workspace.asRelativePath(uri, false)}`);
+          outputChannel.appendLine(
+            `Synced added file: ${vscode.workspace.asRelativePath(uri, false)}`,
+          );
         } catch (error) {
           notifyRepoAlignError("RepoAlign failed to sync created file", error);
         }
@@ -2757,7 +2880,9 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
           await sendWorkspaceFileChange(uri, "deleted");
-          outputChannel.appendLine(`Synced deleted file: ${vscode.workspace.asRelativePath(uri, false)}`);
+          outputChannel.appendLine(
+            `Synced deleted file: ${vscode.workspace.asRelativePath(uri, false)}`,
+          );
         } catch (error) {
           notifyRepoAlignError("RepoAlign failed to sync deleted file", error);
         }

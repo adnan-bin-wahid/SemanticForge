@@ -56,6 +56,7 @@ frontend/src/
 ### 2. Summary Statistics
 
 **At-a-Glance Metrics:**
+
 - Files Changed
 - Symbols Changed
 - Total Findings
@@ -64,6 +65,7 @@ frontend/src/
 ### 3. Findings by File
 
 **Organized Display:**
+
 - Grouped by affected file
 - Sorted by severity: Blocker → Error → Warning → Info
 - File path with finding count badge
@@ -72,6 +74,7 @@ frontend/src/
 ### 4. Finding Cards
 
 **Detailed Information per Finding:**
+
 - **Severity Badge** with icon and color
   - 🛑 Blocker (Red)
   - ❌ Error (Red)
@@ -86,6 +89,7 @@ frontend/src/
 ### 5. Pattern Detection Results
 
 **Symbol-Level Analysis:**
+
 - Changed symbol name and type
 - Matched repository pattern
 - Similarity score (percentage)
@@ -94,6 +98,7 @@ frontend/src/
 ### 6. Diagnostics Section
 
 **Backend Messages:**
+
 - Context retrieval status
 - Pattern detection availability
 - Service availability warnings
@@ -181,6 +186,7 @@ panel.reveal(vscode.ViewColumn.Beside);
 ### Grouping Logic
 
 **Findings Grouped by File:**
+
 ```typescript
 interface GroupedFindings {
   blocker: CommitBlockingFinding[];
@@ -195,6 +201,7 @@ interface FindingsByFile {
 ```
 
 **Benefits:**
+
 - Clear file-level organization
 - Easy to identify which files need attention
 - Severity-based prioritization within each file
@@ -202,11 +209,13 @@ interface FindingsByFile {
 ### Styling
 
 **VS Code Theme Integration:**
+
 - Uses VS Code CSS variables for theme consistency
 - Respects user's color theme (dark/light/high-contrast)
 - Consistent with VS Code UI conventions
 
 **Key Variables:**
+
 - `--vscode-editor-background`
 - `--vscode-editor-foreground`
 - `--vscode-input-background`
@@ -224,11 +233,13 @@ interface FindingsByFile {
 **Purpose:** Open or reveal the findings panel
 
 **Behavior:**
+
 - If panel exists, reveals it
 - If panel doesn't exist, creates empty panel
 - Shows "No Analysis Results" message until analysis runs
 
 **Usage:**
+
 ```
 Ctrl+Shift+P → RepoAlign: Show Findings Panel
 ```
@@ -236,6 +247,7 @@ Ctrl+Shift+P → RepoAlign: Show Findings Panel
 ### 2. RepoAlign: Analyze Staged Changes
 
 **Enhanced with Panel:**
+
 - Runs staged change analysis
 - Automatically opens/updates findings panel
 - Shows results in structured format
@@ -243,6 +255,7 @@ Ctrl+Shift+P → RepoAlign: Show Findings Panel
 ### 3. RepoAlign: Commit With Analysis
 
 **Enhanced with Panel:**
+
 - Runs analysis before commit
 - Shows panel for `blocked` or `review` recommendations
 - Provides visual context for commit decision
@@ -307,13 +320,16 @@ No issues found in staged changes
 ### Test Scenario 1: Clean Commit
 
 **Setup:**
+
 - Stage a well-formed Python change
 - No pattern drift, no syntax errors
 
 **Steps:**
+
 1. `RepoAlign: Analyze Staged Changes`
 
 **Expected:**
+
 - Panel opens
 - Recommendation: **Ready to Commit** (green)
 - Summary shows file/symbol counts
@@ -324,13 +340,16 @@ No issues found in staged changes
 ### Test Scenario 2: Pattern Drift Warning
 
 **Setup:**
+
 - Stage a function that skips common helper
 - Or changes return style from repository pattern
 
 **Steps:**
+
 1. `RepoAlign: Analyze Staged Changes`
 
 **Expected:**
+
 - Panel opens
 - Recommendation: **Review Recommended** (orange)
 - Findings section shows:
@@ -344,12 +363,15 @@ No issues found in staged changes
 ### Test Scenario 3: Syntax Error Blocker
 
 **Setup:**
+
 - Stage Python file with syntax error
 
 **Steps:**
+
 1. `RepoAlign: Analyze Staged Changes`
 
 **Expected:**
+
 - Panel opens
 - Recommendation: **Commit Blocked** (red)
 - Findings section shows:
@@ -363,12 +385,15 @@ No issues found in staged changes
 ### Test Scenario 4: Commit Gate
 
 **Setup:**
+
 - Stage change with review warnings
 
 **Steps:**
+
 1. `RepoAlign: Commit With Analysis`
 
 **Expected:**
+
 - Panel opens automatically
 - Warning dialog: "RepoAlign recommends review before committing. Continue anyway?"
 - Options: "Commit Anyway" or Cancel
@@ -379,10 +404,12 @@ No issues found in staged changes
 ### Test Scenario 5: Multiple Files
 
 **Setup:**
+
 - Stage changes across 3+ Python files
 - Mix of clean and drifting changes
 
 **Expected:**
+
 - Panel groups findings by file
 - Each file shows in separate section
 - File path with finding count badge
@@ -393,6 +420,7 @@ No issues found in staged changes
 ## UI Screenshots (Conceptual)
 
 ### Ready to Commit
+
 ```
 ┌─────────────────────────────────────────────┐
 │ RepoAlign Commit Analysis                   │
@@ -409,6 +437,7 @@ No issues found in staged changes
 ```
 
 ### Review Recommended
+
 ```
 ┌─────────────────────────────────────────────┐
 │ RepoAlign Commit Analysis                   │
@@ -567,6 +596,7 @@ No issues found in staged changes
 ✅ **Phase 12.1 Complete**
 
 **Delivered:**
+
 - Comprehensive findings dashboard
 - File and severity grouping
 - Visual recommendation system
@@ -576,6 +606,7 @@ No issues found in staged changes
 - Persistent state management
 
 **Impact:**
+
 - Users get clear review dashboard instead of separate popups
 - All commit-time findings visible in organized format
 - Ready for Phase 12.2 (interactive diff review)

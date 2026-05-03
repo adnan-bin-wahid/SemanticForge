@@ -267,7 +267,7 @@ function getNoFindingsHtml(): string {
 
 function getFindingsListHtml(groupedFindings: FindingsByFile): string {
   const files = Object.keys(groupedFindings).sort();
-  
+
   let html = `
     <div class="section">
       <div class="section-header">
@@ -337,12 +337,16 @@ function getFindingCardHtml(finding: CommitBlockingFinding): string {
       </div>
       <div class="finding-reason">${escapeHtml(finding.reason)}</div>
       ${finding.matched_pattern ? `<div class="finding-pattern">Pattern: <code>${escapeHtml(finding.matched_pattern)}</code></div>` : ""}
-      ${finding.suggested_fix ? `
+      ${
+        finding.suggested_fix
+          ? `
         <div class="finding-fix">
           <div class="fix-label">💡 Suggested Fix:</div>
           <div class="fix-content">${escapeHtml(finding.suggested_fix)}</div>
         </div>
-      ` : ""}
+      `
+          : ""
+      }
     </div>
   `;
 }
@@ -361,7 +365,9 @@ function getDiagnosticsHtml(diagnostics: string[]): string {
   `;
 }
 
-function getPatternResultsHtml(patternResults: PatternDetectionResult[]): string {
+function getPatternResultsHtml(
+  patternResults: PatternDetectionResult[],
+): string {
   return `
     <div class="section">
       <div class="section-header">
