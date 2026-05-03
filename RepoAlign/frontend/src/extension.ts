@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import axios from "axios";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import * as path from "path";
 import {
   createValidationPanel,
   updateValidationPanel,
@@ -109,6 +110,31 @@ interface StagedAnalysisPayload {
   workspaceName: string;
   backendUrl: string;
   files: StagedFilePayload[];
+}
+
+interface CommitBlockingFinding {
+  severity: "info" | "warning" | "error" | "blocker";
+  affected_file: string;
+  affected_symbol?: string;
+  reason: string;
+  matched_pattern?: string;
+  suggested_fix?: string;
+  validation_status: "passed" | "warning" | "failed";
+}
+
+interface CommitAnalysisResponse {
+  status: "ok";
+  recommendation: "ready" | "review" | "blocked";
+  findings: CommitBlockingFinding[];
+  diagnostics: string[];
+  summary: {
+    total_files: number;
+    python_files: number;
+    total_hunks: number;
+    total_changed_symbols: number;
+    additions: number;
+    deletions: number;
+  };
 }
 
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
@@ -371,6 +397,22 @@ async function runGit(
   });
 
   return result.stdout.toString();
+}
+
+async function runGitWithResult(
+  workspaceFolder: vscode.WorkspaceFolder,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  const result = await execFileAsync("git", args, {
+    cwd: workspaceFolder.uri.fsPath,
+    maxBuffer: 20 * 1024 * 1024,
+    windowsHide: true,
+  });
+
+  return {
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
 }
 
 async function runGitOptional(
@@ -651,6 +693,244 @@ async function buildStagedAnalysisPayload(
   };
 }
 
+function writeCommitAnalysisReport(
+  payload: StagedAnalysisPayload,
+  analysis: CommitAnalysisResponse,
+): void {
+  outputChannel.clear();
+  outputChannel.appendLine("RepoAlign Commit Analysis");
+  outputChannel.appendLine("");
+  outputChannel.appendLine(`Recommendation: ${analysis.recommendation}`);
+  outputChannel.appendLine(`Files: ${analysis.summary.total_files}`);
+  outputChannel.appendLine(`Python files: ${analysis.summary.python_files}`);
+  outputChannel.appendLine(`Changed symbols: ${analysis.summary.total_changed_symbols}`);
+  outputChannel.appendLine(`Lines: +${analysis.summary.additions}/-${analysis.summary.deletions}`);
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Staged Files");
+  outputChannel.appendLine("------------");
+
+  for (const file of payload.files) {
+    outputChannel.appendLine(
+      `${file.status} ${file.path} (${file.hunks.length} hunk(s), ${file.changedSymbols.length} symbol(s))`,
+    );
+  }
+
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Findings");
+  outputChannel.appendLine("--------");
+
+  if (!analysis.findings.length) {
+    outputChannel.appendLine("No blocking findings.");
+  } else {
+    for (const finding of analysis.findings) {
+      const symbol = finding.affected_symbol
+        ? ` :: ${finding.affected_symbol}`
+        : "";
+      outputChannel.appendLine(
+        `[${finding.severity}] ${finding.affected_file}${symbol}`,
+      );
+      outputChannel.appendLine(`  reason: ${finding.reason}`);
+      if (finding.matched_pattern) {
+        outputChannel.appendLine(`  pattern: ${finding.matched_pattern}`);
+      }
+      if (finding.suggested_fix) {
+        outputChannel.appendLine(`  suggested fix: ${finding.suggested_fix}`);
+      }
+      outputChannel.appendLine(`  validation: ${finding.validation_status}`);
+    }
+  }
+
+  if (analysis.diagnostics.length) {
+    outputChannel.appendLine("");
+    outputChannel.appendLine("Diagnostics");
+    outputChannel.appendLine("-----------");
+    for (const diagnostic of analysis.diagnostics) {
+      outputChannel.appendLine(diagnostic);
+    }
+  }
+
+  outputChannel.show(true);
+}
+
+function getManagedHookContent(backendUrl: string): string {
+  return `#!/bin/sh
+# RepoAlign managed pre-commit hook
+# Remove with: RepoAlign: Remove Pre-Commit Hook
+BACKEND_URL="${backendUrl}"
+
+python - <<'PY'
+import json
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+backend_url = "${backendUrl}"
+
+def git(*args):
+    return subprocess.check_output(["git", *args], text=True, stderr=subprocess.DEVNULL)
+
+name_status = git("diff", "--cached", "--name-status").splitlines()
+files = []
+for line in name_status:
+    parts = line.split("\\t")
+    if len(parts) < 2:
+        continue
+    status = parts[0]
+    path = parts[-1]
+    if not path.endswith(".py"):
+        continue
+    try:
+        new_content = "" if status.startswith("D") else git("show", f":{path}")
+    except Exception:
+        new_content = ""
+    files.append({
+        "status": status,
+        "path": path,
+        "language": "python",
+        "oldContent": "",
+        "newContent": new_content,
+        "hunks": [],
+        "changedSymbols": [],
+    })
+
+if not files:
+    sys.exit(0)
+
+payload = {
+    "workspaceId": git("rev-parse", "--show-toplevel").strip(),
+    "workspaceName": "git-hook",
+    "backendUrl": backend_url,
+    "files": files,
+}
+
+request = urllib.request.Request(
+    backend_url + "/analyze-staged-changes",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        result = json.loads(response.read().decode("utf-8"))
+except urllib.error.URLError as exc:
+    print(f"RepoAlign hook warning: backend unavailable ({exc}). Commit allowed.")
+    sys.exit(0)
+
+recommendation = result.get("recommendation", "review")
+if recommendation == "blocked":
+    print("RepoAlign blocked this commit:")
+    for finding in result.get("findings", []):
+        print(f"- [{finding.get('severity')}] {finding.get('affected_file')}: {finding.get('reason')}")
+    print("Use git commit --no-verify to bypass this optional local hook.")
+    sys.exit(1)
+
+print(f"RepoAlign hook analysis: {recommendation}")
+sys.exit(0)
+PY
+`;
+}
+
+async function getGitHooksPath(
+  workspaceFolder: vscode.WorkspaceFolder,
+): Promise<string> {
+  const gitDir = (await runGit(workspaceFolder, ["rev-parse", "--git-dir"])).trim();
+  const hooksPath = path.isAbsolute(gitDir)
+    ? path.join(gitDir, "hooks")
+    : path.join(workspaceFolder.uri.fsPath, gitDir, "hooks");
+  return hooksPath;
+}
+
+async function installPreCommitHook(): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage("Open a Git workspace before installing the RepoAlign hook.");
+    return;
+  }
+
+  if (!(await hasGitRepository(workspaceFolder))) {
+    vscode.window.showWarningMessage("RepoAlign hook installation needs a Git repository.");
+    return;
+  }
+
+  const hooksPath = await getGitHooksPath(workspaceFolder);
+  const hookUri = vscode.Uri.file(path.join(hooksPath, "pre-commit"));
+
+  try {
+    const existing = await vscode.workspace.fs.readFile(hookUri);
+    const existingText = Buffer.from(existing).toString("utf8");
+    if (!existingText.includes("RepoAlign managed pre-commit hook")) {
+      vscode.window.showWarningMessage(
+        "A non-RepoAlign pre-commit hook already exists. RepoAlign did not overwrite it.",
+      );
+      return;
+    }
+  } catch {
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(hooksPath));
+  }
+
+  const content = new TextEncoder().encode(
+    getManagedHookContent(getRepoAlignConfig().backendUrl),
+  );
+  await vscode.workspace.fs.writeFile(hookUri, content);
+
+  if (process.platform !== "win32") {
+    await execFileAsync("chmod", ["755", hookUri.fsPath], { windowsHide: true });
+  }
+
+  outputChannel.appendLine(`Installed RepoAlign pre-commit hook: ${hookUri.fsPath}`);
+  outputChannel.show(true);
+  vscode.window.showInformationMessage(
+    "RepoAlign pre-commit hook installed for this repository. Push remains normal; commits can bypass with --no-verify.",
+  );
+}
+
+async function removePreCommitHook(): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage("Open a Git workspace before removing the RepoAlign hook.");
+    return;
+  }
+
+  const hookUri = vscode.Uri.file(path.join(await getGitHooksPath(workspaceFolder), "pre-commit"));
+
+  try {
+    const existing = await vscode.workspace.fs.readFile(hookUri);
+    const existingText = Buffer.from(existing).toString("utf8");
+    if (!existingText.includes("RepoAlign managed pre-commit hook")) {
+      vscode.window.showWarningMessage(
+        "The existing pre-commit hook is not RepoAlign-managed. RepoAlign did not remove it.",
+      );
+      return;
+    }
+
+    await vscode.workspace.fs.delete(hookUri);
+    outputChannel.appendLine(`Removed RepoAlign pre-commit hook: ${hookUri.fsPath}`);
+    outputChannel.show(true);
+    vscode.window.showInformationMessage("RepoAlign pre-commit hook removed.");
+  } catch {
+    vscode.window.showInformationMessage("No RepoAlign pre-commit hook was found.");
+  }
+}
+
+async function requestStagedAnalysis(
+  workspaceFolder: vscode.WorkspaceFolder,
+): Promise<{ payload: StagedAnalysisPayload; analysis: CommitAnalysisResponse }> {
+  const payload = await buildStagedAnalysisPayload(workspaceFolder);
+  if (payload.files.length === 0) {
+    throw new Error("No staged changes found. Stage files before committing with analysis.");
+  }
+
+  const response = await axios.post<CommitAnalysisResponse>(
+    `${getRepoAlignConfig().backendUrl}/analyze-staged-changes`,
+    payload,
+    { timeout: 120000 },
+  );
+
+  return { payload, analysis: response.data };
+}
+
 async function inspectStagedChanges(): Promise<void> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
@@ -749,42 +1029,92 @@ async function analyzeStagedChanges(): Promise<void> {
     },
     async (progress) => {
       progress.report({ increment: 20, message: "Parsing staged diff..." });
-      const payload = await buildStagedAnalysisPayload(workspaceFolder);
+      const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
 
-      if (payload.files.length === 0) {
-        vscode.window.showInformationMessage(
-          "RepoAlign found no staged changes to analyze.",
+      progress.report({ increment: 40, message: "Commit analysis complete." });
+      writeCommitAnalysisReport(payload, analysis);
+      vscode.window.showInformationMessage(
+        `RepoAlign staged analysis complete. Recommendation: ${analysis.recommendation}. Your Git commit/push flow was not changed.`,
+      );
+    },
+  );
+}
+
+async function commitWithAnalysis(): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage(
+      "RepoAlign needs an opened workspace folder before committing.",
+    );
+    return;
+  }
+
+  if (!(await hasGitRepository(workspaceFolder))) {
+    vscode.window.showWarningMessage(
+      "RepoAlign commit analysis needs a Git repository.",
+    );
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "RepoAlign: Commit with analysis...",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 15, message: "Analyzing staged changes..." });
+      const { payload, analysis } = await requestStagedAnalysis(workspaceFolder);
+      writeCommitAnalysisReport(payload, analysis);
+
+      if (analysis.recommendation === "blocked") {
+        vscode.window.showErrorMessage(
+          "RepoAlign blocked this commit. Review the RepoAlign output findings, fix the staged change, and try again.",
         );
         return;
       }
 
-      progress.report({ increment: 40, message: "Sending structured payload..." });
-      const response = await axios.post(
-        `${getRepoAlignConfig().backendUrl}/analyze-staged-changes`,
-        payload,
-        { timeout: 120000 },
-      );
+      if (analysis.recommendation === "review") {
+        const choice = await vscode.window.showWarningMessage(
+          "RepoAlign recommends review before committing. Continue anyway?",
+          { modal: true },
+          "Commit Anyway",
+        );
 
-      progress.report({ increment: 40, message: "Commit analysis complete." });
+        if (choice !== "Commit Anyway") {
+          return;
+        }
+      }
 
-      outputChannel.clear();
-      outputChannel.appendLine("RepoAlign Staged Commit Analysis");
+      const commitMessage = await vscode.window.showInputBox({
+        title: "RepoAlign: Commit With Analysis",
+        prompt: "Enter the Git commit message.",
+        placeHolder: "Describe the staged change",
+        ignoreFocusOut: true,
+      });
+
+      if (!commitMessage?.trim()) {
+        vscode.window.showInformationMessage("RepoAlign commit cancelled: no commit message provided.");
+        return;
+      }
+
+      progress.report({ increment: 55, message: "Running git commit..." });
+      const result = await runGitWithResult(workspaceFolder, [
+        "commit",
+        "-m",
+        commitMessage.trim(),
+      ]);
+
+      progress.report({ increment: 30, message: "Commit complete." });
       outputChannel.appendLine("");
-      outputChannel.appendLine("Request Summary");
-      outputChannel.appendLine("---------------");
-      outputChannel.appendLine(`Files: ${payload.files.length}`);
-      outputChannel.appendLine(
-        `Changed Python symbols: ${payload.files.reduce((total, file) => total + file.changedSymbols.length, 0)}`,
-      );
+      outputChannel.appendLine("Git Commit Result");
+      outputChannel.appendLine("-----------------");
+      outputChannel.appendLine(result.stdout.trim() || result.stderr.trim() || "Commit completed.");
       outputChannel.appendLine("");
-      outputChannel.appendLine("Backend Response");
-      outputChannel.appendLine("----------------");
-      outputChannel.appendLine(JSON.stringify(response.data, null, 2));
+      outputChannel.appendLine(`Analysis event: passed at ${new Date().toISOString()}`);
       outputChannel.show(true);
-
-      const recommendation = response.data?.recommendation ?? "review";
       vscode.window.showInformationMessage(
-        `RepoAlign staged analysis complete. Recommendation: ${recommendation}. Your Git commit/push flow was not changed.`,
+        "RepoAlign analysis passed and Git commit completed. Push flow remains normal.",
       );
     },
   );
@@ -1352,6 +1682,7 @@ function getWelcomeHtml(webview: vscode.Webview): string {
       <button data-command="reset">Reset Graph/Index</button>
       <button data-command="staged">Inspect Staged Changes</button>
       <button data-command="analyzeStaged">Analyze Staged Changes</button>
+      <button data-command="commitAnalysis">Commit With Analysis</button>
       <button data-command="generate">Generate Patch</button>
       <button class="secondary" data-command="hide">Do Not Show Again</button>
     </div>
@@ -1412,6 +1743,9 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
         break;
       case "analyzeStaged":
         await vscode.commands.executeCommand("repoalign.analyzeStagedChanges");
+        break;
+      case "commitAnalysis":
+        await vscode.commands.executeCommand("repoalign.commitWithAnalysis");
         break;
       case "generate":
         await vscode.commands.executeCommand("repoalign.generatePatch");
@@ -1548,6 +1882,39 @@ export function activate(context: vscode.ExtensionContext) {
         await analyzeStagedChanges();
       } catch (error) {
         notifyRepoAlignError("RepoAlign staged change analysis failed", error);
+      }
+    },
+  );
+
+  const commitWithAnalysisDisposable = vscode.commands.registerCommand(
+    "repoalign.commitWithAnalysis",
+    async () => {
+      try {
+        await commitWithAnalysis();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign commit with analysis failed", error);
+      }
+    },
+  );
+
+  const installPreCommitHookDisposable = vscode.commands.registerCommand(
+    "repoalign.installPreCommitHook",
+    async () => {
+      try {
+        await installPreCommitHook();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign hook installation failed", error);
+      }
+    },
+  );
+
+  const removePreCommitHookDisposable = vscode.commands.registerCommand(
+    "repoalign.removePreCommitHook",
+    async () => {
+      try {
+        await removePreCommitHook();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign hook removal failed", error);
       }
     },
   );
@@ -1921,6 +2288,9 @@ export function activate(context: vscode.ExtensionContext) {
     reindexEmbeddingsDisposable,
     inspectStagedChangesDisposable,
     analyzeStagedChangesDisposable,
+    commitWithAnalysisDisposable,
+    installPreCommitHookDisposable,
+    removePreCommitHookDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,

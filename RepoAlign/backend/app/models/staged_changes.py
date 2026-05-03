@@ -51,10 +51,21 @@ class CommitAnalysisSummary(BaseModel):
     deletions: int
 
 
+class CommitBlockingFinding(BaseModel):
+    severity: Literal["info", "warning", "error", "blocker"]
+    affected_file: str
+    affected_symbol: Optional[str] = None
+    reason: str
+    matched_pattern: Optional[str] = None
+    suggested_fix: Optional[str] = None
+    validation_status: Literal["passed", "warning", "failed"]
+
+
 class CommitAnalysisResponse(BaseModel):
     status: Literal["ok"]
     recommendation: Literal["ready", "review", "blocked"]
     summary: CommitAnalysisSummary
     changed_symbols: list[ChangedSymbol]
+    findings: list[CommitBlockingFinding] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
     retrieved_context: dict[str, Any] = Field(default_factory=dict)

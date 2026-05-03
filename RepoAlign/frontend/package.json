@@ -21,6 +21,9 @@
     "onCommand:repoalign.reindexEmbeddings",
     "onCommand:repoalign.inspectStagedChanges",
     "onCommand:repoalign.analyzeStagedChanges",
+    "onCommand:repoalign.commitWithAnalysis",
+    "onCommand:repoalign.installPreCommitHook",
+    "onCommand:repoalign.removePreCommitHook",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -63,6 +66,18 @@
       {
         "command": "repoalign.analyzeStagedChanges",
         "title": "RepoAlign: Analyze Staged Changes"
+      },
+      {
+        "command": "repoalign.commitWithAnalysis",
+        "title": "RepoAlign: Commit With Analysis"
+      },
+      {
+        "command": "repoalign.installPreCommitHook",
+        "title": "RepoAlign: Install Pre-Commit Hook"
+      },
+      {
+        "command": "repoalign.removePreCommitHook",
+        "title": "RepoAlign: Remove Pre-Commit Hook"
       },
       {
         "command": "repoalign.healthCheck",

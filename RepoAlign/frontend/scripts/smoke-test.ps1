@@ -59,6 +59,9 @@ $commands = @($package.contributes.commands)
   "repoalign.reindexEmbeddings",
   "repoalign.inspectStagedChanges",
   "repoalign.analyzeStagedChanges",
+  "repoalign.commitWithAnalysis",
+  "repoalign.installPreCommitHook",
+  "repoalign.removePreCommitHook",
   "repoalign.generatePatch"
 ) | ForEach-Object { Assert-Command -Commands $commands -Command $_ }
 
