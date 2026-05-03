@@ -57,6 +57,8 @@ $commands = @($package.contributes.commands)
   "repoalign.rebuildGraph",
   "repoalign.resetWorkspaceIndex",
   "repoalign.reindexEmbeddings",
+  "repoalign.inspectStagedChanges",
+  "repoalign.analyzeStagedChanges",
   "repoalign.generatePatch"
 ) | ForEach-Object { Assert-Command -Commands $commands -Command $_ }
 

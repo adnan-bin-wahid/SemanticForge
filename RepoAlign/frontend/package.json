@@ -19,6 +19,8 @@
     "onCommand:repoalign.rebuildGraph",
     "onCommand:repoalign.resetWorkspaceIndex",
     "onCommand:repoalign.reindexEmbeddings",
+    "onCommand:repoalign.inspectStagedChanges",
+    "onCommand:repoalign.analyzeStagedChanges",
     "onCommand:repoalign.healthCheck",
     "onCommand:repoalign.analyzeWorkspace",
     "onCommand:repoalign.generatePatch"
@@ -53,6 +55,14 @@
       {
         "command": "repoalign.reindexEmbeddings",
         "title": "RepoAlign: Re-index Embeddings"
+      },
+      {
+        "command": "repoalign.inspectStagedChanges",
+        "title": "RepoAlign: Inspect Staged Changes"
+      },
+      {
+        "command": "repoalign.analyzeStagedChanges",
+        "title": "RepoAlign: Analyze Staged Changes"
       },
       {
         "command": "repoalign.healthCheck",

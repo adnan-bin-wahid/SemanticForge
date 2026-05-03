@@ -1,9 +1,13 @@
 import * as vscode from "vscode";
 import axios from "axios";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import {
   createValidationPanel,
   updateValidationPanel,
 } from "./validationPanel";
+
+const execFileAsync = promisify(execFile);
 
 // Define the structure for file content payload
 interface FileContent {
@@ -62,6 +66,49 @@ interface ReadinessResponse {
   ready: boolean;
   model: string;
   services: Record<string, ReadinessService>;
+}
+
+interface StagedFileChange {
+  status: string;
+  path: string;
+  previousPath?: string;
+  additions?: number;
+  deletions?: number;
+}
+
+interface StagedDiffHunk {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  changedOldLines: number[];
+  changedNewLines: number[];
+  patch: string;
+}
+
+interface ChangedSymbol {
+  name: string;
+  type: "function" | "class";
+  startLine: number;
+  endLine: number;
+  changedLines: number[];
+  content: string;
+}
+
+interface StagedFilePayload extends StagedFileChange {
+  language: "python" | "other";
+  oldContent: string;
+  newContent: string;
+  hunks: StagedDiffHunk[];
+  changedSymbols: ChangedSymbol[];
+}
+
+interface StagedAnalysisPayload {
+  workspaceId?: string;
+  workspaceName: string;
+  backendUrl: string;
+  files: StagedFilePayload[];
 }
 
 const WELCOME_SHOWN_KEY = "repoalign.welcomeShown";
@@ -311,6 +358,436 @@ function notifyRepoAlignError(title: string, error: unknown): void {
   appendOutputSection(title, [message]);
   outputChannel.show(true);
   vscode.window.showErrorMessage(`${title}: ${message}`);
+}
+
+async function runGit(
+  workspaceFolder: vscode.WorkspaceFolder,
+  args: string[],
+): Promise<string> {
+  const result = await execFileAsync("git", args, {
+    cwd: workspaceFolder.uri.fsPath,
+    maxBuffer: 20 * 1024 * 1024,
+    windowsHide: true,
+  });
+
+  return result.stdout.toString();
+}
+
+async function runGitOptional(
+  workspaceFolder: vscode.WorkspaceFolder,
+  args: string[],
+): Promise<string> {
+  try {
+    return await runGit(workspaceFolder, args);
+  } catch {
+    return "";
+  }
+}
+
+function parseOptionalCount(value: string): number | undefined {
+  if (value === "-") {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function parseStagedNameStatus(output: string): StagedFileChange[] {
+  return output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("\t");
+      const status = parts[0] ?? "";
+
+      if (status.startsWith("R") || status.startsWith("C")) {
+        return {
+          status,
+          previousPath: parts[1] ?? "",
+          path: parts[2] ?? parts[1] ?? "",
+        };
+      }
+
+      return {
+        status,
+        path: parts[1] ?? "",
+      };
+    })
+    .filter((change) => change.path.length > 0);
+}
+
+function mergeStagedNumstat(
+  changes: StagedFileChange[],
+  output: string,
+): StagedFileChange[] {
+  const countsByPath = new Map<string, { additions?: number; deletions?: number }>();
+
+  for (const line of output.split(/\r?\n/).filter(Boolean)) {
+    const parts = line.split("\t");
+    const path = parts[3] ?? parts[2] ?? "";
+    if (!path) {
+      continue;
+    }
+
+    countsByPath.set(path, {
+      additions: parseOptionalCount(parts[0] ?? "-"),
+      deletions: parseOptionalCount(parts[1] ?? "-"),
+    });
+  }
+
+  return changes.map((change) => ({
+    ...change,
+    ...countsByPath.get(change.path),
+  }));
+}
+
+function parseUnifiedDiff(diff: string): Map<string, StagedDiffHunk[]> {
+  const hunksByPath = new Map<string, StagedDiffHunk[]>();
+  const lines = diff.split(/\r?\n/);
+  let currentPath = "";
+  let currentHunk: StagedDiffHunk | undefined;
+  let oldLine = 0;
+  let newLine = 0;
+
+  const finishHunk = () => {
+    if (!currentPath || !currentHunk) {
+      return;
+    }
+
+    const hunks = hunksByPath.get(currentPath) ?? [];
+    hunks.push({
+      ...currentHunk,
+      patch: currentHunk.patch.replace(/\r?\n$/, ""),
+    });
+    hunksByPath.set(currentPath, hunks);
+    currentHunk = undefined;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("diff --git ")) {
+      finishHunk();
+      const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+      currentPath = match?.[2] ?? "";
+      continue;
+    }
+
+    if (line.startsWith("+++ b/")) {
+      currentPath = line.slice("+++ b/".length);
+      continue;
+    }
+
+    if (line.startsWith("@@ ")) {
+      finishHunk();
+      const match =
+        /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line);
+      if (!match) {
+        continue;
+      }
+
+      oldLine = Number.parseInt(match[1], 10);
+      newLine = Number.parseInt(match[3], 10);
+      currentHunk = {
+        header: line,
+        oldStart: oldLine,
+        oldLines: Number.parseInt(match[2] ?? "1", 10),
+        newStart: newLine,
+        newLines: Number.parseInt(match[4] ?? "1", 10),
+        changedOldLines: [],
+        changedNewLines: [],
+        patch: `${line}\n`,
+      };
+      continue;
+    }
+
+    if (!currentHunk) {
+      continue;
+    }
+
+    currentHunk.patch += `${line}\n`;
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      currentHunk.changedNewLines.push(newLine);
+      newLine += 1;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      currentHunk.changedOldLines.push(oldLine);
+      oldLine += 1;
+    } else if (!line.startsWith("\\")) {
+      oldLine += 1;
+      newLine += 1;
+    }
+  }
+
+  finishHunk();
+  return hunksByPath;
+}
+
+function getPythonSymbols(content: string): ChangedSymbol[] {
+  const lines = content.split(/\r?\n/);
+  const symbols: ChangedSymbol[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = /^(\s*)(async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const indent = match[1].replace(/\t/g, "    ").length;
+    const keyword = match[2].includes("class") ? "class" : "function";
+    let endLine = lines.length;
+
+    for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+      const nextLine = lines[nextIndex];
+      if (!nextLine.trim()) {
+        continue;
+      }
+
+      const nextIndent = nextLine.match(/^\s*/)?.[0].replace(/\t/g, "    ").length ?? 0;
+      if (nextIndent <= indent) {
+        endLine = nextIndex;
+        break;
+      }
+    }
+
+    symbols.push({
+      name: match[3],
+      type: keyword,
+      startLine: index + 1,
+      endLine,
+      changedLines: [],
+      content: lines.slice(index, endLine).join("\n"),
+    });
+  }
+
+  return symbols;
+}
+
+function mapHunksToSymbols(
+  content: string,
+  hunks: StagedDiffHunk[],
+  useOldLines = false,
+): ChangedSymbol[] {
+  const changedLines = new Set<number>();
+  for (const hunk of hunks) {
+    const lines = useOldLines ? hunk.changedOldLines : hunk.changedNewLines;
+    for (const line of lines) {
+      changedLines.add(line);
+    }
+  }
+
+  return getPythonSymbols(content)
+    .map((symbol) => ({
+      ...symbol,
+      changedLines: Array.from(changedLines)
+        .filter((line) => line >= symbol.startLine && line <= symbol.endLine)
+        .sort((a, b) => a - b),
+    }))
+    .filter((symbol) => symbol.changedLines.length > 0);
+}
+
+async function getStagedFileContent(
+  workspaceFolder: vscode.WorkspaceFolder,
+  file: StagedFileChange,
+): Promise<{ oldContent: string; newContent: string }> {
+  const isAdded = file.status.startsWith("A");
+  const isDeleted = file.status.startsWith("D");
+  const oldPath = file.previousPath ?? file.path;
+
+  const oldContent = isAdded
+    ? ""
+    : await runGitOptional(workspaceFolder, ["show", `HEAD:${oldPath}`]);
+  const newContent = isDeleted
+    ? ""
+    : await runGitOptional(workspaceFolder, ["show", `:${file.path}`]);
+
+  return { oldContent, newContent };
+}
+
+async function buildStagedAnalysisPayload(
+  workspaceFolder: vscode.WorkspaceFolder,
+): Promise<StagedAnalysisPayload> {
+  const [nameStatus, numstat, diff] = await Promise.all([
+    runGit(workspaceFolder, ["diff", "--cached", "--name-status"]),
+    runGit(workspaceFolder, ["diff", "--cached", "--numstat"]),
+    runGit(workspaceFolder, ["diff", "--cached", "--no-ext-diff"]),
+  ]);
+
+  const stagedFiles = mergeStagedNumstat(
+    parseStagedNameStatus(nameStatus),
+    numstat,
+  );
+  const hunksByPath = parseUnifiedDiff(diff);
+  const files: StagedFilePayload[] = [];
+
+  for (const file of stagedFiles) {
+    const { oldContent, newContent } = await getStagedFileContent(
+      workspaceFolder,
+      file,
+    );
+    const language = file.path.endsWith(".py") ? "python" : "other";
+    const hunks = hunksByPath.get(file.path) ?? [];
+    const useOldLines = file.status.startsWith("D");
+    const symbolContent = useOldLines ? oldContent : newContent;
+
+    files.push({
+      ...file,
+      language,
+      oldContent,
+      newContent,
+      hunks,
+      changedSymbols:
+        language === "python"
+          ? mapHunksToSymbols(symbolContent, hunks, useOldLines)
+          : [],
+    });
+  }
+
+  return {
+    workspaceId: getWorkspaceId(),
+    workspaceName: workspaceFolder.name,
+    backendUrl: getRepoAlignConfig().backendUrl,
+    files,
+  };
+}
+
+async function inspectStagedChanges(): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage(
+      "RepoAlign needs an opened workspace folder before inspecting staged changes.",
+    );
+    return;
+  }
+
+  if (!(await hasGitRepository(workspaceFolder))) {
+    vscode.window.showWarningMessage(
+      "RepoAlign staged change inspection needs a Git repository.",
+    );
+    return;
+  }
+
+  const [nameStatus, numstat, stat, diff] = await Promise.all([
+    runGit(workspaceFolder, ["diff", "--cached", "--name-status"]),
+    runGit(workspaceFolder, ["diff", "--cached", "--numstat"]),
+    runGit(workspaceFolder, ["diff", "--cached", "--stat"]),
+    runGit(workspaceFolder, ["diff", "--cached", "--no-ext-diff"]),
+  ]);
+
+  const stagedFiles = mergeStagedNumstat(
+    parseStagedNameStatus(nameStatus),
+    numstat,
+  );
+
+  outputChannel.clear();
+  outputChannel.appendLine("RepoAlign Staged Changes");
+  outputChannel.appendLine("");
+  outputChannel.appendLine(`Workspace: ${workspaceFolder.name}`);
+  outputChannel.appendLine(`Repository: ${workspaceFolder.uri.fsPath}`);
+  outputChannel.appendLine(`Staged files: ${stagedFiles.length}`);
+  outputChannel.appendLine("");
+
+  if (stagedFiles.length === 0) {
+    outputChannel.appendLine("No staged files found.");
+    outputChannel.show(true);
+    vscode.window.showInformationMessage(
+      "RepoAlign found no staged changes. Your normal Git push flow is unchanged.",
+    );
+    return;
+  }
+
+  outputChannel.appendLine("Files");
+  outputChannel.appendLine("-----");
+  for (const file of stagedFiles) {
+    const counts =
+      typeof file.additions === "number" && typeof file.deletions === "number"
+        ? ` (+${file.additions}/-${file.deletions})`
+        : "";
+    const rename =
+      file.previousPath && file.previousPath !== file.path
+        ? ` from ${file.previousPath}`
+        : "";
+    outputChannel.appendLine(`${file.status} ${file.path}${rename}${counts}`);
+  }
+
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Stat");
+  outputChannel.appendLine("----");
+  outputChannel.appendLine(stat.trim() || "No staged diff stat available.");
+  outputChannel.appendLine("");
+  outputChannel.appendLine("Staged Diff");
+  outputChannel.appendLine("-----------");
+  outputChannel.appendLine(diff.trim() || "No staged text diff available.");
+  outputChannel.show(true);
+
+  vscode.window.showInformationMessage(
+    `RepoAlign inspected ${stagedFiles.length} staged file(s). No commit or push behavior was changed.`,
+  );
+}
+
+async function analyzeStagedChanges(): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    vscode.window.showWarningMessage(
+      "RepoAlign needs an opened workspace folder before analyzing staged changes.",
+    );
+    return;
+  }
+
+  if (!(await hasGitRepository(workspaceFolder))) {
+    vscode.window.showWarningMessage(
+      "RepoAlign staged analysis needs a Git repository.",
+    );
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "RepoAlign: Analyzing staged changes...",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 20, message: "Parsing staged diff..." });
+      const payload = await buildStagedAnalysisPayload(workspaceFolder);
+
+      if (payload.files.length === 0) {
+        vscode.window.showInformationMessage(
+          "RepoAlign found no staged changes to analyze.",
+        );
+        return;
+      }
+
+      progress.report({ increment: 40, message: "Sending structured payload..." });
+      const response = await axios.post(
+        `${getRepoAlignConfig().backendUrl}/analyze-staged-changes`,
+        payload,
+        { timeout: 120000 },
+      );
+
+      progress.report({ increment: 40, message: "Commit analysis complete." });
+
+      outputChannel.clear();
+      outputChannel.appendLine("RepoAlign Staged Commit Analysis");
+      outputChannel.appendLine("");
+      outputChannel.appendLine("Request Summary");
+      outputChannel.appendLine("---------------");
+      outputChannel.appendLine(`Files: ${payload.files.length}`);
+      outputChannel.appendLine(
+        `Changed Python symbols: ${payload.files.reduce((total, file) => total + file.changedSymbols.length, 0)}`,
+      );
+      outputChannel.appendLine("");
+      outputChannel.appendLine("Backend Response");
+      outputChannel.appendLine("----------------");
+      outputChannel.appendLine(JSON.stringify(response.data, null, 2));
+      outputChannel.show(true);
+
+      const recommendation = response.data?.recommendation ?? "review";
+      vscode.window.showInformationMessage(
+        `RepoAlign staged analysis complete. Recommendation: ${recommendation}. Your Git commit/push flow was not changed.`,
+      );
+    },
+  );
 }
 
 async function sendWorkspaceFileChange(
@@ -873,6 +1350,8 @@ function getWelcomeHtml(webview: vscode.Webview): string {
       <button data-command="rebuild">Rebuild Graph</button>
       <button data-command="embeddings">Re-index Embeddings</button>
       <button data-command="reset">Reset Graph/Index</button>
+      <button data-command="staged">Inspect Staged Changes</button>
+      <button data-command="analyzeStaged">Analyze Staged Changes</button>
       <button data-command="generate">Generate Patch</button>
       <button class="secondary" data-command="hide">Do Not Show Again</button>
     </div>
@@ -927,6 +1406,12 @@ function showWelcomePanel(context: vscode.ExtensionContext) {
         break;
       case "reset":
         await vscode.commands.executeCommand("repoalign.resetWorkspaceIndex");
+        break;
+      case "staged":
+        await vscode.commands.executeCommand("repoalign.inspectStagedChanges");
+        break;
+      case "analyzeStaged":
+        await vscode.commands.executeCommand("repoalign.analyzeStagedChanges");
         break;
       case "generate":
         await vscode.commands.executeCommand("repoalign.generatePatch");
@@ -1041,6 +1526,28 @@ export function activate(context: vscode.ExtensionContext) {
         await runReindexEmbeddings();
       } catch (error) {
         notifyRepoAlignError("RepoAlign embedding re-index failed", error);
+      }
+    },
+  );
+
+  const inspectStagedChangesDisposable = vscode.commands.registerCommand(
+    "repoalign.inspectStagedChanges",
+    async () => {
+      try {
+        await inspectStagedChanges();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign staged change inspection failed", error);
+      }
+    },
+  );
+
+  const analyzeStagedChangesDisposable = vscode.commands.registerCommand(
+    "repoalign.analyzeStagedChanges",
+    async () => {
+      try {
+        await analyzeStagedChanges();
+      } catch (error) {
+        notifyRepoAlignError("RepoAlign staged change analysis failed", error);
       }
     },
   );
@@ -1412,6 +1919,8 @@ export function activate(context: vscode.ExtensionContext) {
     rebuildGraphDisposable,
     resetWorkspaceIndexDisposable,
     reindexEmbeddingsDisposable,
+    inspectStagedChangesDisposable,
+    analyzeStagedChangesDisposable,
     healthCheckDisposable,
     analyzeWorkspaceDisposable,
     generatePatchDisposable,
