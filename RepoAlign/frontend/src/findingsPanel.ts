@@ -66,6 +66,12 @@ interface FindingsByFile {
 }
 
 let currentPanel: vscode.WebviewPanel | undefined;
+let currentAnalysis: {
+  response: CommitAnalysisResponse;
+  workspaceName: string;
+  workspacePath: string;
+  backendUrl: string;
+} | undefined;
 
 export function createFindingsPanel(
   context: vscode.ExtensionContext,
@@ -91,6 +97,7 @@ export function createFindingsPanel(
   // Handle panel disposal
   panel.onDidDispose(() => {
     currentPanel = undefined;
+    currentAnalysis = undefined;
   });
 
   currentPanel = panel;
@@ -101,13 +108,43 @@ export function updateFindingsPanel(
   panel: vscode.WebviewPanel,
   response: CommitAnalysisResponse | null,
   workspaceName: string,
+  workspacePath?: string,
+  backendUrl?: string,
 ): void {
   if (!response) {
     panel.webview.html = getEmptyFindingsHtml();
     return;
   }
 
+  // Store current analysis context
+  currentAnalysis = {
+    response,
+    workspaceName,
+    workspacePath: workspacePath || "",
+    backendUrl: backendUrl || "http://localhost:8000",
+  };
+
   panel.webview.html = getFindingsHtml(response, workspaceName);
+  
+  // Set up message handler for webview communication
+  setupMessageHandler(panel);
+}
+
+function setupMessageHandler(panel: vscode.WebviewPanel): void {
+  panel.webview.onDidReceiveMessage(async (message) => {
+    if (message.type === "reviewDiff" && currentAnalysis) {
+      // Import and call the diff review function
+      const { reviewFindingDiff } = await import("./diffReview");
+      
+      await reviewFindingDiff({
+        finding: message.finding,
+        workspaceName: currentAnalysis.workspaceName,
+        workspacePath: currentAnalysis.workspacePath,
+        backendUrl: currentAnalysis.backendUrl,
+        changedSymbols: currentAnalysis.response.changed_symbols,
+      });
+    }
+  });
 }
 
 function groupFindingsByFile(
@@ -196,6 +233,17 @@ function getFindingsHtml(
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>RepoAlign Findings</title>
+      <script>
+        const vscode = acquireVsCodeApi();
+        
+        function reviewDiff(findingId, findingData) {
+          vscode.postMessage({
+            type: 'reviewDiff',
+            findingId: findingId,
+            finding: findingData
+          });
+        }
+      </script>
       <style>
         ${getSharedStyles()}
       </style>
@@ -328,6 +376,9 @@ function getFindingCardHtml(finding: CommitBlockingFinding): string {
   };
 
   const config = severityConfig[finding.severity];
+  
+  // Create unique ID for this finding
+  const findingId = `finding-${finding.affected_file.replace(/[^a-zA-Z0-9]/g, '-')}-${finding.affected_symbol || 'unknown'}`;
 
   return `
     <div class="finding-card finding-${finding.severity}">
@@ -343,6 +394,9 @@ function getFindingCardHtml(finding: CommitBlockingFinding): string {
         <div class="finding-fix">
           <div class="fix-label">💡 Suggested Fix:</div>
           <div class="fix-content">${escapeHtml(finding.suggested_fix)}</div>
+          <button class="review-diff-button" onclick="reviewDiff('${findingId}', ${escapeHtml(JSON.stringify(finding))})">
+            📊 Review Diff
+          </button>
         </div>
       `
           : ""
@@ -664,6 +718,26 @@ function getSharedStyles(): string {
 
     .fix-content {
       font-size: 12px;
+    }
+
+    .review-diff-button {
+      margin-top: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--vscode-button-foreground);
+      background-color: var(--vscode-button-background);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .review-diff-button:hover {
+      background-color: var(--vscode-button-hoverBackground);
+    }
+
+    .review-diff-button:active {
+      opacity: 0.8;
     }
 
     code {

@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from .api.endpoints import health, ingestion, graph, build_graph, embeddings, validation, maintenance, agent_control, commit_analysis
+from .api.endpoints import health, ingestion, graph, build_graph, embeddings, validation, maintenance, agent_control, commit_analysis, aligned_suggestions
 from .db import neo4j_driver, qdrant_client
 from .services.graph_expansion import GraphExpansion
 from .services.context_retriever import ContextRetriever
 from .services.code_generation import CodeGenerator
+from .services.llm_client import OllamaClient
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -16,6 +17,7 @@ async def lifespan(app: FastAPI):
             context_retriever = ContextRetriever(graph_expansion_service)
             app.state.context_retriever = context_retriever
             app.state.code_generator = CodeGenerator(context_retriever, "http://ollama:11434")
+            app.state.llm_client = OllamaClient(base_url="http://ollama:11434", model="tinyllama")
             yield
             graph_expansion_service.close()
 
@@ -29,5 +31,6 @@ app.include_router(embeddings.router, prefix="/api/v1")
 app.include_router(validation.router, prefix="/api/v1")
 app.include_router(maintenance.router, prefix="/api/v1")
 app.include_router(agent_control.router, prefix="/api/v1")
+app.include_router(aligned_suggestions.router)
 app.include_router(commit_analysis.router, prefix="/api/v1")
 

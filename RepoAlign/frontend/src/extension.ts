@@ -1417,6 +1417,10 @@ async function analyzeStagedChanges(): Promise<void> {
     return;
   }
 
+  // Get backend URL from configuration
+  const config = vscode.workspace.getConfiguration("repoalign");
+  const backendUrl = config.get<string>("backendUrl") || "http://localhost:8000";
+
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -1443,7 +1447,7 @@ async function analyzeStagedChanges(): Promise<void> {
       if (!panel) {
         panel = createFindingsPanel(extensionContext);
       }
-      updateFindingsPanel(panel, analysis, workspaceFolder.name);
+      updateFindingsPanel(panel, analysis, workspaceFolder.name, workspaceFolder.uri.fsPath, backendUrl);
       panel.reveal(vscode.ViewColumn.Beside);
 
       vscode.window.showInformationMessage(
@@ -1468,6 +1472,10 @@ async function commitWithAnalysis(): Promise<void> {
     );
     return;
   }
+
+  // Get backend URL from configuration
+  const config = vscode.workspace.getConfiguration("repoalign");
+  const backendUrl = config.get<string>("backendUrl") || "http://localhost:8000";
 
   await vscode.window.withProgress(
     {
@@ -1500,7 +1508,7 @@ async function commitWithAnalysis(): Promise<void> {
         if (!panel) {
           panel = createFindingsPanel(extensionContext);
         }
-        updateFindingsPanel(panel, analysis, workspaceFolder.name);
+        updateFindingsPanel(panel, analysis, workspaceFolder.name, workspaceFolder.uri.fsPath, backendUrl);
         panel.reveal(vscode.ViewColumn.Beside);
 
         vscode.window.showErrorMessage(
@@ -1515,7 +1523,7 @@ async function commitWithAnalysis(): Promise<void> {
         if (!panel) {
           panel = createFindingsPanel(extensionContext);
         }
-        updateFindingsPanel(panel, analysis, workspaceFolder.name);
+        updateFindingsPanel(panel, analysis, workspaceFolder.name, workspaceFolder.uri.fsPath, backendUrl);
         panel.reveal(vscode.ViewColumn.Beside);
 
         const choice = await vscode.window.showWarningMessage(
@@ -2357,10 +2365,13 @@ export function activate(context: vscode.ExtensionContext) {
       let panel = getFindingsPanel();
       if (!panel) {
         panel = createFindingsPanel(extensionContext);
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         updateFindingsPanel(
           panel,
           null,
-          vscode.workspace.workspaceFolders?.[0]?.name || "Workspace",
+          workspaceFolder?.name || "Workspace",
+          workspaceFolder?.uri.fsPath,
+          "http://localhost:8000",
         );
       }
       panel.reveal(vscode.ViewColumn.Beside);
