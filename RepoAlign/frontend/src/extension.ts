@@ -7,6 +7,11 @@ import {
   createValidationPanel,
   updateValidationPanel,
 } from "./validationPanel";
+import {
+  createFindingsPanel,
+  updateFindingsPanel,
+  getFindingsPanel,
+} from "./findingsPanel";
 
 const execFileAsync = promisify(execFile);
 
@@ -116,7 +121,7 @@ interface StagedAnalysisPayload {
 interface CommitBlockingFinding {
   severity: "info" | "warning" | "error" | "blocker";
   affected_file: string;
-  affected_symbol?: string;
+  affected_symbol: string | null;
   reason: string;
   matched_pattern?: string;
   suggested_fix?: string;
@@ -126,9 +131,6 @@ interface CommitBlockingFinding {
 interface CommitAnalysisResponse {
   status: "ok";
   recommendation: "ready" | "review" | "blocked";
-  findings: CommitBlockingFinding[];
-  pattern_results?: PatternDetectionResult[];
-  diagnostics: string[];
   summary: {
     total_files: number;
     python_files: number;
@@ -137,6 +139,11 @@ interface CommitAnalysisResponse {
     additions: number;
     deletions: number;
   };
+  changed_symbols: any[];
+  findings: CommitBlockingFinding[];
+  pattern_results?: PatternDetectionResult[];
+  diagnostics: string[];
+  retrieved_context?: any;
 }
 
 interface PatternDetectionResult {
@@ -1362,6 +1369,15 @@ async function analyzeStagedChanges(): Promise<void> {
       progress.report({ increment: 40, message: "Commit analysis complete." });
       writeCommitAnalysisReport(payload, analysis, filtered.ignored);
       await consumeIgnoreOnceDecisions(extensionContext, filtered.ignored);
+
+      // Create or update the findings panel
+      let panel = getFindingsPanel();
+      if (!panel) {
+        panel = createFindingsPanel(extensionContext);
+      }
+      updateFindingsPanel(panel, analysis, workspaceFolder.name);
+      panel.reveal(vscode.ViewColumn.Beside);
+
       vscode.window.showInformationMessage(
         `RepoAlign staged analysis complete. Recommendation: ${analysis.recommendation}. Your Git commit/push flow was not changed.`,
       );
@@ -1404,6 +1420,14 @@ async function commitWithAnalysis(): Promise<void> {
         (finding) => finding.severity === "blocker",
       );
       if (analysis.recommendation === "blocked" && hasActiveBlocker) {
+        // Show findings panel for blocked commits
+        let panel = getFindingsPanel();
+        if (!panel) {
+          panel = createFindingsPanel(extensionContext);
+        }
+        updateFindingsPanel(panel, analysis, workspaceFolder.name);
+        panel.reveal(vscode.ViewColumn.Beside);
+
         vscode.window.showErrorMessage(
           "RepoAlign blocked this commit. Review the RepoAlign output findings, fix the staged change, and try again.",
         );
@@ -1411,6 +1435,14 @@ async function commitWithAnalysis(): Promise<void> {
       }
 
       if (analysis.recommendation === "review") {
+        // Show findings panel for review recommendations
+        let panel = getFindingsPanel();
+        if (!panel) {
+          panel = createFindingsPanel(extensionContext);
+        }
+        updateFindingsPanel(panel, analysis, workspaceFolder.name);
+        panel.reveal(vscode.ViewColumn.Beside);
+
         const choice = await vscode.window.showWarningMessage(
           "RepoAlign recommends review before committing. Continue anyway?",
           { modal: true },
@@ -2212,6 +2244,18 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  const showFindingsPanelDisposable = vscode.commands.registerCommand(
+    "repoalign.showFindingsPanel",
+    () => {
+      let panel = getFindingsPanel();
+      if (!panel) {
+        panel = createFindingsPanel(extensionContext);
+        updateFindingsPanel(panel, null, vscode.workspace.workspaceFolders?.[0]?.name || "Workspace");
+      }
+      panel.reveal(vscode.ViewColumn.Beside);
+    },
+  );
+
   const analyzeStagedChangesDisposable = vscode.commands.registerCommand(
     "repoalign.analyzeStagedChanges",
     async () => {
@@ -2639,6 +2683,7 @@ export function activate(context: vscode.ExtensionContext) {
     resetWorkspaceIndexDisposable,
     reindexEmbeddingsDisposable,
     inspectStagedChangesDisposable,
+    showFindingsPanelDisposable,
     analyzeStagedChangesDisposable,
     commitWithAnalysisDisposable,
     installPreCommitHookDisposable,

@@ -20,6 +20,7 @@
     "onCommand:repoalign.resetWorkspaceIndex",
     "onCommand:repoalign.reindexEmbeddings",
     "onCommand:repoalign.inspectStagedChanges",
+    "onCommand:repoalign.showFindingsPanel",
     "onCommand:repoalign.analyzeStagedChanges",
     "onCommand:repoalign.commitWithAnalysis",
     "onCommand:repoalign.installPreCommitHook",
@@ -65,6 +66,10 @@
       {
         "command": "repoalign.inspectStagedChanges",
         "title": "RepoAlign: Inspect Staged Changes"
+      },
+      {
+        "command": "repoalign.showFindingsPanel",
+        "title": "RepoAlign: Show Findings Panel"
       },
       {
         "command": "repoalign.analyzeStagedChanges",
